@@ -1,11 +1,9 @@
 package com.crsmthw.sheliak.ui.navigation
 
-import androidx.navigation3.runtime.NavKey
-
 /*
- * Which navigation-suite component the shell shows, decided from the window width and the top of the back
- * stack. Pure Kotlin so the decision is unit-tested (SuiteLayoutTest); the composable side only maps the
- * answer onto Material's NavigationSuiteType.
+ * Which navigation-suite component the library shows, decided from the window width. Pure Kotlin so the
+ * decision is unit-tested (SuiteLayoutTest); the composable side only maps the answer onto Material's
+ * NavigationSuiteType.
  */
 
 /** The M3 window width classes the shell distinguishes. */
@@ -24,21 +22,19 @@ fun windowWidthOf(widthDp: Int): WindowWidth = when {
     else                             -> WindowWidth.Compact
 }
 
-/** What the suite shows: a bottom bar, a wide rail (collapsed or expanded), or nothing. */
-enum class SuiteLayout { Bar, CollapsedRail, ExpandedRail, Hidden }
+/** What the suite shows: a bottom bar, or a wide rail (collapsed or expanded). */
+enum class SuiteLayout { Bar, CollapsedRail, ExpandedRail }
 
 /**
- * The suite for [width] while [topKey] is on top. Hidden on every screen that is not one of the four
- * destinations (Intro, Search, Settings, Player, Queue). Otherwise purely width-driven — bar on compact,
- * collapsed wide rail on medium, expanded wide rail on expanded — deliberately NOT Material's default
- * `navigationSuiteType()`, which never picks the expanded rail and swaps the rail for a short bar whenever
- * the window is short (folded landscape), where the four items still fit a rail comfortably.
+ * The suite for [width]. The suite only exists inside the Library entry, so there is no hidden case: purely
+ * width-driven — bar on compact, collapsed wide rail on medium, expanded wide rail on expanded — deliberately
+ * NOT Material's default `navigationSuiteType()`, which never picks the expanded rail and swaps the rail for a
+ * short bar whenever the window is short (folded landscape), where the four items still fit a rail comfortably.
  */
-fun suiteLayoutFor(width: WindowWidth, topKey: NavKey?): SuiteLayout = when {
-    !isTopLevel(topKey)              -> SuiteLayout.Hidden
-    width == WindowWidth.Compact     -> SuiteLayout.Bar
-    width == WindowWidth.Medium      -> SuiteLayout.CollapsedRail
-    else                             -> SuiteLayout.ExpandedRail
+fun suiteLayoutFor(width: WindowWidth): SuiteLayout = when (width) {
+    WindowWidth.Compact  -> SuiteLayout.Bar
+    WindowWidth.Medium   -> SuiteLayout.CollapsedRail
+    WindowWidth.Expanded -> SuiteLayout.ExpandedRail
 }
 
 /**

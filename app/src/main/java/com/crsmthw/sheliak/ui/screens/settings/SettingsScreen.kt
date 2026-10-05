@@ -49,7 +49,7 @@ import com.crsmthw.sheliak.util.confirm
 import com.crsmthw.sheliak.util.horizontalSystemBarsPadding
 
 /**
- * Settings, pushed from the gear in every destination's top bar. Three sections: **Sources** (where Plex and
+ * Settings, pushed from the gear in the library bar. Three sections: **Sources** (where Plex and
  * the other sources will be added and managed — empty until the first provider lands), **Sheliak** (the
  * Theme sheet and the haptics switch) and **About** (the version and the open-source licences).
  *

@@ -31,26 +31,25 @@ class SuiteLayoutTest {
     // ── suiteLayoutFor ──────────────────────────────────────────────────────
 
     @Test
-    fun `destinations get the bar on compact`() {
-        TopLevelKeys.forEach { assertEquals(SuiteLayout.Bar, suiteLayoutFor(WindowWidth.Compact, it)) }
+    fun `compact gets the bar`() {
+        assertEquals(SuiteLayout.Bar, suiteLayoutFor(WindowWidth.Compact))
     }
 
     @Test
-    fun `destinations get the collapsed rail on medium`() {
-        TopLevelKeys.forEach { assertEquals(SuiteLayout.CollapsedRail, suiteLayoutFor(WindowWidth.Medium, it)) }
+    fun `medium gets the collapsed rail`() {
+        assertEquals(SuiteLayout.CollapsedRail, suiteLayoutFor(WindowWidth.Medium))
     }
 
     @Test
-    fun `destinations get the expanded rail on expanded`() {
-        TopLevelKeys.forEach { assertEquals(SuiteLayout.ExpandedRail, suiteLayoutFor(WindowWidth.Expanded, it)) }
+    fun `expanded gets the expanded rail`() {
+        assertEquals(SuiteLayout.ExpandedRail, suiteLayoutFor(WindowWidth.Expanded))
     }
 
     @Test
-    fun `every other screen hides the suite at every width`() {
-        val others = listOf(Intro, Search, Settings, Player, Queue, null)
-        WindowWidth.entries.forEach { width ->
-            others.forEach { key -> assertEquals(SuiteLayout.Hidden, suiteLayoutFor(width, key), "$width $key") }
-        }
+    fun `measured widths map end to end`() {
+        assertEquals(SuiteLayout.Bar, suiteLayoutFor(windowWidthOf(411)))
+        assertEquals(SuiteLayout.CollapsedRail, suiteLayoutFor(windowWidthOf(673)))
+        assertEquals(SuiteLayout.ExpandedRail, suiteLayoutFor(windowWidthOf(882)))
     }
 
     // ── searchMorphEnabled ──────────────────────────────────────────────────

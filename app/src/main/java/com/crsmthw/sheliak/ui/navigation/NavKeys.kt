@@ -7,21 +7,20 @@ import kotlinx.serialization.modules.polymorphic
 import kotlinx.serialization.modules.subclass
 
 /*
- * Every destination of the app, and the pure rules that decide what the back stack holds. Pure Kotlin (no
- * android.*, no Compose), so the rules are unit-tested in NavKeysTest.
+ * Every destination of the app, the library's tabs, and the pure rules that decide what the back stack holds
+ * and where back goes inside the library. Pure Kotlin (no android.*, no Compose), so the rules are
+ * unit-tested in NavKeysTest.
  */
 
-/** First-run welcome. Replaced by [Tracks] once `intro_done` is set; never under another entry. */
+/** First-run welcome. Replaced by [Library] once `intro_done` is set; never under another entry. */
 @Serializable data object Intro : NavKey
 
-/** The default destination and the bottom of every back stack. */
-@Serializable data object Tracks : NavKey
-
-@Serializable data object Albums : NavKey
-
-@Serializable data object Artists : NavKey
-
-@Serializable data object Playlists : NavKey
+/**
+ * The library — the navigation suite (bar or rail) and its four tabs ([LibraryTab]) in ONE entry, and the
+ * bottom of every back stack. Because the suite lives inside this entry, a screen pushed on top covers the
+ * bar or rail along with the rest of the library, and a (predictive) back reveals it whole.
+ */
+@Serializable data object Library : NavKey
 
 @Serializable data object Search : NavKey
 
@@ -33,40 +32,40 @@ import kotlinx.serialization.modules.subclass
 /** Placeholder until the player lands; pushed from the player. */
 @Serializable data object Queue : NavKey
 
-/** The four navigation-suite destinations, in suite order. */
-val TopLevelKeys: List<NavKey> = listOf(Tracks, Albums, Artists, Playlists)
-
 /** Every key, so the saved-state module below and its test cannot drift from the key list. */
-val AllNavKeys: List<NavKey> = listOf(Intro, Tracks, Albums, Artists, Playlists, Search, Settings, Player, Queue)
-
-/** Whether [key] is one of the four suite destinations — the only screens that show the suite. */
-fun isTopLevel(key: NavKey?): Boolean = key != null && key in TopLevelKeys
+val AllNavKeys: List<NavKey> = listOf(Intro, Library, Search, Settings, Player, Queue)
 
 /**
- * The whole back stack after selecting [tab] in the suite. It always starts with [Tracks], so back from any
- * other tab returns to Tracks and back from Tracks leaves the app — tabs never stack on each other.
+ * The library's four tabs, in suite order. Not navigation keys: the selected tab is saveable state inside the
+ * [Library] entry, so switching tabs never touches the back stack.
  */
-fun backStackForTab(tab: NavKey): List<NavKey> {
-    require(isTopLevel(tab)) { "$tab is not a navigation-suite destination" }
-    return if (tab == Tracks) listOf(Tracks) else listOf(Tracks, tab)
-}
+enum class LibraryTab { TRACKS, ALBUMS, ARTISTS, PLAYLISTS }
+
+/** The tab the library opens on, and the one back returns to from the others. */
+val HomeLibraryTab: LibraryTab = LibraryTab.TRACKS
 
 /**
- * The suite item to show as selected for [backStack]: the nearest top-level key from the top. Non-root
- * screens hide the suite, but the answer stays defined so the suite never flashes a wrong selection while a
- * pushed screen animates away.
+ * Where system back goes while the library shows [tab]: to [HomeLibraryTab] from any other tab (Lyra's "back
+ * from a tab returns home"), or null when back is not the library's to handle — on the home tab (back leaves
+ * the app) and whenever the Library entry is not [resumed].
+ *
+ * The [resumed] gate matters during a (predictive) pop from Search or Settings: the Library entry is composed
+ * underneath as the incoming screen, and a tab handler registered mid-gesture would otherwise outrank the
+ * navigation host's and switch the tab instead of popping the screen. Navigation 3 resumes an entry only
+ * once it is on top and its transition has settled.
  */
-fun selectedTab(backStack: List<NavKey>): NavKey = backStack.lastOrNull { isTopLevel(it) } ?: Tracks
+fun libraryTabOnBack(tab: LibraryTab, resumed: Boolean): LibraryTab? =
+    if (resumed && tab != HomeLibraryTab) HomeLibraryTab else null
 
-/** The back stack a fresh start opens on: Intro until the user has finished or skipped it, else Tracks. */
-fun startBackStack(introDone: Boolean): List<NavKey> = listOf(if (introDone) Tracks else Intro)
+/** The back stack a fresh start opens on: Intro until the user has finished or skipped it, else Library. */
+fun startBackStack(introDone: Boolean): List<NavKey> = listOf(if (introDone) Library else Intro)
 
 /**
- * The back stack once Intro is done: Intro is replaced, never kept under Tracks, so back from Tracks leaves
- * the app instead of returning to the welcome screen. Any other stack is returned unchanged.
+ * The back stack once Intro is done: Intro is replaced, never kept under Library, so back from the library
+ * leaves the app instead of returning to the welcome screen. Any other stack is returned unchanged.
  */
 fun backStackAfterIntro(backStack: List<NavKey>): List<NavKey> =
-    if (Intro in backStack) listOf(Tracks) else backStack
+    if (Intro in backStack) listOf(Library) else backStack
 
 /**
  * Turns this back stack into [target] by editing it in place — trimming the tail, then overwriting or
@@ -93,10 +92,7 @@ fun MutableList<NavKey>.replaceWith(target: List<NavKey>) {
 val NavKeySerializersModule: SerializersModule = SerializersModule {
     polymorphic(NavKey::class) {
         subclass(Intro::class)
-        subclass(Tracks::class)
-        subclass(Albums::class)
-        subclass(Artists::class)
-        subclass(Playlists::class)
+        subclass(Library::class)
         subclass(Search::class)
         subclass(Settings::class)
         subclass(Player::class)

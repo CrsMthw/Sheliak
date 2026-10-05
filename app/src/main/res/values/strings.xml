@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Sheliak</string>
 
-    <!-- Navigation: the four suite destinations, search, and the shared back arrow -->
+    <!-- Navigation: the library's four tabs, search, and the shared back arrow -->
     <string name="nav_tracks">Tracks</string>
     <string name="nav_albums">Albums</string>
     <string name="nav_artists">Artists</string>
@@ -27,7 +27,7 @@
     <string name="intro_coming_next">Coming next</string>
     <string name="intro_skip">Skip for now</string>
 
-    <!-- Library destinations. The Tracks subtitle joins the two counts: "12 tracks · 3 albums". -->
+    <!-- Library tabs. Each tab's bar subtitle is its own count: "12 tracks", "3 albums", "5 artists", "2 playlists". -->
     <plurals name="library_track_count">
         <item quantity="one">%1$d track</item>
         <item quantity="other">%1$d tracks</item>
@@ -36,7 +36,14 @@
         <item quantity="one">%1$d album</item>
         <item quantity="other">%1$d albums</item>
     </plurals>
-    <string name="library_counts">%1$s · %2$s</string>
+    <plurals name="library_artist_count">
+        <item quantity="one">%1$d artist</item>
+        <item quantity="other">%1$d artists</item>
+    </plurals>
+    <plurals name="library_playlist_count">
+        <item quantity="one">%1$d playlist</item>
+        <item quantity="other">%1$d playlists</item>
+    </plurals>
     <string name="library_empty_tracks">No tracks yet</string>
     <string name="library_empty_albums">No albums yet</string>
     <string name="library_empty_artists">No artists yet</string>

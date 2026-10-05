@@ -36,12 +36,12 @@ import com.crsmthw.sheliak.util.confirm
 private val EmptyStateMaxWidth = 480.dp
 
 /**
- * What a library destination shows while it has nothing to list — every destination in M0, which has no
- * sources yet: a card with the destination's icon, a headline, one line on how music gets here, and an
- * "Add a source" button that opens Settings (where sources are managed).
+ * What a library tab shows while it has nothing to list — every tab in M0, which has no sources yet: a card
+ * with the tab's icon, a headline, one line on how music gets here, and an "Add a source" button that opens
+ * Settings (where sources are managed).
  *
- * A list item rather than a full-screen overlay, so the root bar still collapses and expands over it exactly as
- * it will over real rows.
+ * A list item rather than a full-screen overlay, so the library bar still collapses and expands over it exactly
+ * as it will over real rows.
  */
 @Composable
 internal fun LibraryEmptyState(

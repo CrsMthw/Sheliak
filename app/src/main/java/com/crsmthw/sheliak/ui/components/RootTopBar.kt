@@ -1,5 +1,6 @@
 package com.crsmthw.sheliak.ui.components
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -20,6 +21,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.crsmthw.sheliak.util.fadeThroughText
 
 /**
  * Pane height at or above which a root screen gets the **large flexible** app bar. Below it — the
@@ -155,13 +157,20 @@ fun rememberRootTopBarScrollBehavior(
  * collapse earned in portrait does not survive a round trip through the folded outer screen in
  * landscape — the bar comes back expanded, and one upward drag re-collapses it.
  *
+ * ### Text that changes in place
+ *
+ * The title and subtitle TEXT crossfade when they change ([fadeThroughText]: M3 fade through's 90ms out,
+ * 210ms in after 90ms), while the bar itself — height, collapse, actions — never moves. The library's one bar
+ * relies on it: a tab change swaps its words, nothing else. A constant string never animates.
+ *
  * @param title the bar's title. One line, ellipsized.
  * @param scrollBehavior what [rememberRootTopBarScrollBehavior] returned.
  * @param belowBar content pinned directly under the bar (see above). Empty by default.
  * @param subtitle optional second line. **If the text can only arrive later (a count landing from
  *   a provider), pass a non-null — possibly empty — string from the first frame**: the expanded
  *   height is pinned from this parameter's NULLNESS (152dp with a subtitle, 120dp without), so a
- *   slot that appears later would resize the bar under the user.
+ *   slot that appears later would resize the bar under the user. Screens that share one bar (the
+ *   library's tabs) must all pass one, so the height never changes between them.
  * @param navigationIcon start slot — typically a back `IconButton`.
  * @param actions end slot.
  * @param containerColor the colour of **whatever is behind the bar**, used for both the resting and
@@ -187,12 +196,8 @@ fun RootTopBar(
         containerColor         = containerColor,
         scrolledContainerColor = containerColor,
     )
-    val titleSlot: @Composable () -> Unit = {
-        Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-    val subtitleSlot: (@Composable () -> Unit)? = subtitle?.let { text ->
-        { Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-    }
+    val titleSlot: @Composable () -> Unit = { BarText(title) }
+    val subtitleSlot: (@Composable () -> Unit)? = subtitle?.let { text -> { BarText(text) } }
 
     Column(modifier = modifier) {
         // Two branches, two composition groups — see `rememberRootTopBarScrollBehavior` for why.
@@ -238,5 +243,20 @@ fun RootTopBar(
             }
         }
         belowBar()
+    }
+}
+
+/**
+ * One line of bar text, crossfading to a new string with [fadeThroughText] (finite fades, no size spring).
+ * The lambda renders the transition's own `shown` string, so the outgoing half keeps the OLD words.
+ */
+@Composable
+private fun BarText(text: String) {
+    AnimatedContent(
+        targetState    = text,
+        transitionSpec = { fadeThroughText() },
+        label          = "bar-text",
+    ) { shown ->
+        Text(shown, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

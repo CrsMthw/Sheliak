@@ -18,8 +18,10 @@ val LocalPlayerSurfaceInset = staticCompositionLocalOf { 0.dp }
 
 /**
  * THE host of the floating player surface: the mini bar and the pop-out panel, wrapped once around the whole
- * navigation host inside the navigation suite's content slot — so they survive every navigation instead of
- * leaving and re-entering with each screen, and never cover the rail or the navigation bar.
+ * navigation host — so they survive every navigation instead of leaving and re-entering with each screen.
+ * The navigation suite lives inside the Library entry, below this host; when the mini bar lands (M1) the
+ * Library publishes its bar / rail extent to the host through a state the host provides, so the surface sits
+ * above the bar on compact and beside the rail on wider windows, never over either.
  *
  * [content] receives `onRequestPlayer`, the one way a screen asks for the player: a push of the full player on
  * compact, the pop-out panel at wider widths once the player exists. Until then this is a pass-through that

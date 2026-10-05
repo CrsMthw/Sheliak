@@ -64,7 +64,7 @@ private val IntroMaxWidth = 560.dp
 /**
  * The first-run welcome: the app name, one line on what Sheliak is, and the four kinds of source it reads.
  * No source can be added yet, so every card shows a "Coming next" state and the way forward is "Skip for now",
- * which stores `intro_done` — the shell then replaces this screen with Tracks.
+ * which stores `intro_done` — the shell then replaces this screen with the library.
  *
  * No app bar: the column takes the status-bar inset itself, and the skip button, the bottom-most element,
  * takes the navigation-bar inset.

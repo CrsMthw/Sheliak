@@ -48,7 +48,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import com.crsmthw.sheliak.R
 import com.crsmthw.sheliak.util.artBoundsTransform
@@ -56,20 +55,20 @@ import com.crsmthw.sheliak.util.press
 import com.crsmthw.sheliak.util.rememberSearchBarMorphClip
 import com.crsmthw.sheliak.util.screenTransitionSpec
 
-/** One navigation-suite destination: its key, label and the outlined / filled icon pair. */
+/** One library tab in the suite: its tab, label and the outlined / filled icon pair. */
 private data class SuiteDestination(
-    val key         : NavKey,
+    val tab         : LibraryTab,
     @param:StringRes val labelRes: Int,
     val icon        : ImageVector,
     val selectedIcon: ImageVector,
 )
 
-/** The four destinations in suite order — the same order as [TopLevelKeys]. */
+/** The four tabs in suite order — the same order as [LibraryTab]. */
 private val SuiteDestinations = listOf(
-    SuiteDestination(Tracks,    R.string.nav_tracks,    Icons.Outlined.LibraryMusic,          Icons.Filled.LibraryMusic),
-    SuiteDestination(Albums,    R.string.nav_albums,    Icons.Outlined.Album,                 Icons.Filled.Album),
-    SuiteDestination(Artists,   R.string.nav_artists,   Icons.Outlined.Person,                Icons.Filled.Person),
-    SuiteDestination(Playlists, R.string.nav_playlists, Icons.AutoMirrored.Outlined.QueueMusic, Icons.AutoMirrored.Filled.QueueMusic),
+    SuiteDestination(LibraryTab.TRACKS,    R.string.nav_tracks,    Icons.Outlined.LibraryMusic,          Icons.Filled.LibraryMusic),
+    SuiteDestination(LibraryTab.ALBUMS,    R.string.nav_albums,    Icons.Outlined.Album,                 Icons.Filled.Album),
+    SuiteDestination(LibraryTab.ARTISTS,   R.string.nav_artists,   Icons.Outlined.Person,                Icons.Filled.Person),
+    SuiteDestination(LibraryTab.PLAYLISTS, R.string.nav_playlists, Icons.AutoMirrored.Outlined.QueueMusic, Icons.AutoMirrored.Filled.QueueMusic),
 )
 
 /**
@@ -84,26 +83,27 @@ private fun SuiteLayout.toNavigationSuiteType(): NavigationSuiteType = when (thi
     SuiteLayout.Bar           -> NavigationSuiteType.ShortNavigationBarCompact
     SuiteLayout.CollapsedRail -> NavigationSuiteType.WideNavigationRailCollapsed
     SuiteLayout.ExpandedRail  -> NavigationSuiteType.WideNavigationRailExpanded
-    SuiteLayout.Hidden        -> NavigationSuiteType.None
 }
 
 /**
- * The app's navigation suite: Material's [NavigationSuiteScaffold] with the four destinations, around the
- * whole navigation host ([content]). The host lives in the scaffold's content slot, so everything the host
- * draws — the screens and, later, the floating player surface — stays clear of the bar and the rail.
+ * The library's navigation suite: Material's [NavigationSuiteScaffold] with the four tabs, around the library's
+ * content ([content]). It lives INSIDE the Library navigation entry (`LibraryShell`), so a pushed screen covers
+ * it like any other part of the library and a predictive back reveals it whole, and the content beside it —
+ * the bar, the tab lists, the compact search FAB — never moves when a screen is pushed.
  *
- * [layout] comes from [suiteLayoutFor]; [SuiteLayout.Hidden] removes the suite on every non-destination screen.
- * On the rail widths the search button lives in the rail's header (the scaffold's primary-action slot). On
- * compact it does NOT: there the search FAB belongs to each destination screen ([SearchFab]), because it is one
- * end of a shared-element morph and must live inside a navigation entry.
+ * [layout] comes from [suiteLayoutFor]. On the rail widths the search button lives in the rail's header (the
+ * scaffold's primary-action slot, see [RailSearchButton]). On compact it does NOT: there the search FAB is
+ * composed by the library's content ([SearchFab]), because it is one end of a shared-element morph and must
+ * live inside a navigation entry, outside the bar's own layout.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SheliakNavigationSuite(
     layout      : SuiteLayout,
-    selectedTab : NavKey,
-    onSelectTab : (NavKey) -> Unit,
+    selectedTab : LibraryTab,
+    onSelectTab : (LibraryTab) -> Unit,
     onOpenSearch: () -> Unit,
+    modifier    : Modifier = Modifier,
     content     : @Composable () -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
@@ -111,14 +111,14 @@ fun SheliakNavigationSuite(
     NavigationSuiteScaffold(
         navigationItems      = {
             SuiteDestinations.forEach { destination ->
-                val selected = destination.key == selectedTab
+                val selected = destination.tab == selectedTab
                 NavigationSuiteItem(
                     selected            = selected,
                     onClick             = {
                         // Re-selecting the current tab does nothing yet (M1 scrolls its list to the top).
                         if (!selected) {
                             haptics.press()
-                            onSelectTab(destination.key)
+                            onSelectTab(destination.tab)
                         }
                     },
                     icon                = {
@@ -132,39 +132,53 @@ fun SheliakNavigationSuite(
                 )
             }
         },
+        modifier             = modifier,
         navigationSuiteType  = type,
         primaryActionContent = {
             when (layout) {
                 SuiteLayout.CollapsedRail -> RailSearchButton(expanded = false, onClick = onOpenSearch)
                 SuiteLayout.ExpandedRail  -> RailSearchButton(expanded = true, onClick = onOpenSearch)
-                // Compact: the destination screen hosts the FAB itself (see the KDoc).
-                SuiteLayout.Bar, SuiteLayout.Hidden -> Unit
+                // Compact: the library's content hosts the FAB itself (see the KDoc).
+                SuiteLayout.Bar           -> Unit
             }
         },
         content              = {
             // The suite's own component covers a system inset for the content: the bottom one under a bar,
-            // the START side beside a rail (a 3-button bar on the END edge is still the screens' to clear).
-            // Consuming it here is what makes every inset MODIFIER below — the screens' bottom fades, the FAB's
-            // `navigationBarsPadding()` — measure only what is still owed, with no per-screen knowledge of
-            // the suite.
+            // the START side beside a rail (a 3-button bar on the END edge is still the content's to clear).
+            // Consuming it here is what makes every inset MODIFIER below — the bottom fade, the FAB's
+            // `navigationBarsPadding()` — measure only what is still owed, with no knowledge of the suite.
             Box(Modifier.fillMaxSize().consumeWindowInsets(suiteCoveredInsets(layout))) { content() }
         },
     )
 }
 
-/** The system insets the suite's bar or rail already covers for [layout]; none when the suite is hidden. */
+/** The system insets the suite's bar or rail already covers for [layout]. */
 @Composable
 private fun suiteCoveredInsets(layout: SuiteLayout): WindowInsets = when (layout) {
     SuiteLayout.Bar           -> WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)
     SuiteLayout.CollapsedRail,
     SuiteLayout.ExpandedRail  -> WindowInsets.systemBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Start)
-    SuiteLayout.Hidden        -> WindowInsets(0)
 }
+
+/**
+ * Start padding of the rail-header search button, so it sits on the rail's own geometry instead of flush with
+ * its edge. `WideNavigationRail` places its header at x = 0 with loose constraints, and its items carry the
+ * item horizontal padding themselves — material3's `internal` `WNRItemHorizontalPadding`, 20dp in
+ * 1.5.0-alpha29 (NOT `WideNavigationRailDefaults.ContentPadding`, whose start is 0dp). Mirroring it:
+ * - collapsed rail (96dp): a top-icon item is 20 + 56 + 20dp wide with its icon centred at 48dp, and a 56dp
+ *   FAB after 20dp is centred at 48dp too — on the item column;
+ * - expanded rail: the item indicators start at 20dp, and so does the extended FAB.
+ * Padding on the button itself, never a filling or centring wrapper: the rail's width is the widest of its
+ * header and items, so a header that fills would widen the rail.
+ */
+private val RailHeaderStartPadding = 20.dp
 
 /**
  * The search button in the rail header: a FAB on the collapsed rail, an extended FAB (icon + label) on the
  * expanded one, in the same tertiary tone as the compact [SearchFab] so search reads as one control at every
- * width. Opening Search from here uses the ordinary push transition — no container morph on rail widths.
+ * width, offset by [RailHeaderStartPadding] onto the rail's item column. Its vertical place is the rail's
+ * (the header's top, items 40dp below it). Opening Search from here uses the ordinary push transition — no
+ * container morph on rail widths.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -172,17 +186,20 @@ private fun RailSearchButton(expanded: Boolean, onClick: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     val label = stringResource(R.string.nav_search)
     val click = { haptics.press(); onClick() }
+    val alignToItems = Modifier.padding(start = RailHeaderStartPadding)
     if (expanded) {
         ExtendedFloatingActionButton(
             onClick        = click,
             icon           = { Icon(Icons.Filled.Search, contentDescription = null) },
             text           = { Text(label) },
+            modifier       = alignToItems,
             containerColor = MaterialTheme.colorScheme.tertiaryContainer,
             contentColor   = MaterialTheme.colorScheme.onTertiaryContainer,
         )
     } else {
         FloatingActionButton(
             onClick        = click,
+            modifier       = alignToItems,
             shape          = MaterialShapes.SoftBurst.toShape(),
             containerColor = MaterialTheme.colorScheme.tertiaryContainer,
             contentColor   = MaterialTheme.colorScheme.onTertiaryContainer,
@@ -196,14 +213,16 @@ private fun RailSearchButton(expanded: Boolean, onClick: () -> Unit) {
 private const val SearchBarSharedKey = "search-bar"
 
 /**
- * The compact search FAB, bottom-end of a destination screen's content `Box`, lifted by the player surface's
- * inset ([LocalPlayerSurfaceInset]) so it sits above the mini player. A [MediumFloatingActionButton] because
+ * The compact search FAB, bottom-end of the library's content `Box` — composed ONCE there, over whichever tab
+ * shows, so a tab change never recomposes or re-shadows it — lifted by the player surface's inset
+ * ([LocalPlayerSurfaceInset]) so it sits above the mini player. A [MediumFloatingActionButton] because
  * the morph's geometry is measured from an 80dp FAB (`util/SearchBarMorph.kt`), in a tertiary tone with the
  * expressive SoftBurst silhouette so it never reads as a play button. Tapping it morphs it into the Search
- * screen's bar ([searchBarSharedBounds]).
+ * screen's bar ([searchBarSharedBounds]). The suite lives in the same entry, so pushing Search never moves the
+ * FAB: the morph starts exactly where the FAB is.
  *
  * Its `navigationBarsPadding()` resolves to zero under the suite's bar, which consumes that inset; it is there
- * for a compact screen without a bar, so the FAB can never sit in the gesture area.
+ * so the FAB can never sit in the gesture area should it ever be composed without the bar.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
