@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shared components and utilities (ui/components, util). Screen strings live in strings.xml. -->
+
+    <!-- Total running time of an album or playlist (util/Extensions.kt toDurationString).
+         Abbreviated units: %1$d is whole hours, %2$d the remaining whole minutes. -->
+    <string name="duration_hours_minutes">%1$dh %2$dm</string>
+    <!-- Total running time under one hour. %1$d is whole minutes. -->
+    <string name="duration_minutes">%1$dm</string>
+</resources>

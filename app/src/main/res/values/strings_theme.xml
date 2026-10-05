@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Theme sheet: accent preset swatch names (read by TalkBack; order and colours in ui/theme/AccentSeed.kt) -->
+    <string name="theme_accent_purple">Purple</string>
+    <string name="theme_accent_green">Green</string>
+    <string name="theme_accent_red">Red</string>
+    <string name="theme_accent_orange">Orange</string>
+    <string name="theme_accent_yellow">Yellow</string>
+    <string name="theme_accent_teal">Teal</string>
+    <string name="theme_accent_blue">Blue</string>
+    <string name="theme_accent_pink">Pink</string>
+    <string name="theme_accent_brown">Brown</string>
+    <string name="theme_accent_blue_grey">Blue grey</string>
+</resources>

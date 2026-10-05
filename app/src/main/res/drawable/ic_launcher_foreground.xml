@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Placeholder launcher art until the real logo arrives. Sheliak is an eclipsing binary star: a
+    four-point star with a small companion disc. One path, so the monochrome layer is the same drawable.
+    Everything sits inside the 66dp safe-zone circle of the 108dp canvas, so no launcher mask clips it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M50,34Q52,56 74,58Q52,60 50,82Q48,60 26,58Q48,56 50,34ZM72,36m-6,0a6,6 0,1 0,12 0a6,6 0,1 0,-12 0Z" />
+</vector>

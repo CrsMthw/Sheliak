@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The default accent (Purple), so the launcher, the splash and a fresh install's theme agree. -->
+    <color name="ic_launcher_background">#8B6BD1</color>
+</resources>
