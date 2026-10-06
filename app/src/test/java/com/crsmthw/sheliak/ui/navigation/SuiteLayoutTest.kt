@@ -60,4 +60,54 @@ class SuiteLayoutTest {
         assertFalse(searchMorphEnabled(WindowWidth.Medium))
         assertFalse(searchMorphEnabled(WindowWidth.Expanded))
     }
+
+    // ── list-detail ─────────────────────────────────────────────────────────
+
+    @Test
+    fun `list-detail starts at the medium width`() {
+        assertFalse(listDetailEnabled(WindowWidth.Compact))
+        assertTrue(listDetailEnabled(WindowWidth.Medium))
+        assertTrue(listDetailEnabled(WindowWidth.Expanded))
+    }
+
+    @Test
+    fun `Tracks is single pane at every width`() {
+        WindowWidth.entries.forEach { width -> assertFalse(libraryTabIsTwoPane(LibraryTab.TRACKS, width), "$width") }
+    }
+
+    @Test
+    fun `albums, artists and playlists are two-pane from 600dp`() {
+        listOf(LibraryTab.ALBUMS, LibraryTab.ARTISTS, LibraryTab.PLAYLISTS).forEach { tab ->
+            assertFalse(libraryTabIsTwoPane(tab, WindowWidth.Compact), "$tab")
+            assertTrue(libraryTabIsTwoPane(tab, WindowWidth.Medium), "$tab")
+            assertTrue(libraryTabIsTwoPane(tab, WindowWidth.Expanded), "$tab")
+        }
+    }
+
+    // ── suiteChromeExtent ───────────────────────────────────────────────────
+
+    @Test
+    fun `the bar reports the height the content lost`() {
+        assertEquals(
+            SuiteChromeExtent(bottomBarPx = 210, startRailPx = 0),
+            suiteChromeExtent(SuiteLayout.Bar, totalWidth = 1080, totalHeight = 2400, contentWidth = 1080, contentHeight = 2190),
+        )
+    }
+
+    @Test
+    fun `a rail reports the width the content lost`() {
+        listOf(SuiteLayout.CollapsedRail, SuiteLayout.ExpandedRail).forEach { layout ->
+            assertEquals(
+                SuiteChromeExtent(bottomBarPx = 0, startRailPx = 252),
+                suiteChromeExtent(layout, totalWidth = 2160, totalHeight = 1800, contentWidth = 1908, contentHeight = 1800),
+                "$layout",
+            )
+        }
+    }
+
+    @Test
+    fun `a half-measured suite never reports a negative extent`() {
+        assertEquals(SuiteChromeExtent.None, suiteChromeExtent(SuiteLayout.Bar, 1080, 0, 1080, 2190))
+        assertEquals(SuiteChromeExtent.None, suiteChromeExtent(SuiteLayout.CollapsedRail, 0, 1800, 1908, 1800))
+    }
 }

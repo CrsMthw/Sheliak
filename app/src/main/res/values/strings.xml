@@ -23,9 +23,15 @@
     <string name="intro_source_local_desc">Music files stored on this phone</string>
     <string name="intro_source_jellyfin_desc">Stream from your Jellyfin server</string>
     <string name="intro_source_samba_desc">Music on a shared network folder</string>
-    <!-- Shown on every source card until that source can be connected -->
+    <!-- Shown on a source card that cannot be connected yet -->
     <string name="intro_coming_next">Coming next</string>
+    <!-- Shown on a source card that can be connected now (Plex) -->
+    <string name="intro_available">Available</string>
     <string name="intro_skip">Skip for now</string>
+    <!-- Intro's primary action while no source exists: on to the Plex setup -->
+    <string name="intro_connect_plex">Connect a Plex server</string>
+    <!-- Intro's primary action once a source exists -->
+    <string name="intro_continue">Continue</string>
 
     <!-- Library tabs. Each tab's bar subtitle is its own count: "12 tracks", "3 albums", "5 artists", "2 playlists". -->
     <plurals name="library_track_count">
@@ -49,18 +55,29 @@
     <string name="library_empty_artists">No artists yet</string>
     <string name="library_empty_playlists">No playlists yet</string>
     <string name="library_empty_body">Add a Plex server, music on this phone, Jellyfin or a network share, and your library appears here.</string>
-    <string name="library_empty_action">Add a source</string>
+    <string name="library_empty_action">Add a Plex server</string>
 
     <!-- Search -->
     <string name="search_placeholder">Search your library</string>
     <string name="search_clear">Clear search</string>
-    <string name="search_recent_empty">Your recent searches will appear here.</string>
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>
     <string name="settings_section_sources">Sources</string>
+    <!-- The Sources row: opens Settings → Sources -->
+    <string name="settings_sources_row">Manage sources</string>
     <string name="settings_sources_empty">No sources yet</string>
-    <string name="settings_sources_empty_desc">Plex comes first, then music on this phone, Jellyfin and Samba.</string>
+    <plurals name="settings_sources_count">
+        <item quantity="one">%1$d source</item>
+        <item quantity="other">%1$d sources</item>
+    </plurals>
+    <string name="settings_section_playback">Playback</string>
+    <string name="settings_transcode_bitrate">Transcode bit rate</string>
+    <string name="settings_transcode_bitrate_desc">Used when a track has to be converted for this phone, or over a slow connection</string>
+    <!-- One bit-rate choice. %1$d is the rate in kilobits per second. -->
+    <string name="settings_bitrate_kbps">%1$d kbps</string>
+    <string name="settings_merge_duplicates">Merge duplicates</string>
+    <string name="settings_merge_duplicates_desc">Show one row for an album, artist or track that more than one source has</string>
     <string name="settings_theme">Theme</string>
     <!-- The Theme row's subtitle while the mode follows the system -->
     <string name="settings_theme_system">System default</string>
@@ -83,9 +100,7 @@
     <string name="theme_accent">Accent</string>
     <string name="theme_accent_hue">Hue</string>
 
-    <!-- Player and queue (placeholders until playback lands) -->
+    <!-- Player and queue titles (the rest of the player's text is in strings_player.xml) -->
     <string name="player_title">Now playing</string>
-    <string name="player_placeholder">The player arrives with the next update.</string>
     <string name="queue_title">Queue</string>
-    <string name="queue_placeholder">The play queue arrives with the player.</string>
 </resources>

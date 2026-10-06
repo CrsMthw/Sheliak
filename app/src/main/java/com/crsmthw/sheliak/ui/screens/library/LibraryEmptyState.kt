@@ -36,26 +36,28 @@ import com.crsmthw.sheliak.util.confirm
 private val EmptyStateMaxWidth = 480.dp
 
 /**
- * What a library tab shows while it has nothing to list — every tab in M0, which has no sources yet: a card
- * with the tab's icon, a headline, one line on how music gets here, and an "Add a source" button that opens
- * Settings (where sources are managed).
+ * What a library tab shows while it has nothing to list: a card with the tab's icon, a headline and one line.
+ * With no source configured the line says how music gets here and [onAddSource] adds the "Add a Plex server"
+ * button (it opens the Plex setup); with sources but nothing listed yet (a first sync still running, or a library
+ * with no playlists) it is the line alone — no button that would set up a second server by mistake.
  *
- * A list item rather than a full-screen overlay, so the library bar still collapses and expands over it exactly
- * as it will over real rows.
+ * A list item rather than a full-screen overlay, so the library bar still collapses and expands over it, and a
+ * pull on it still refreshes.
  */
 @Composable
 internal fun LibraryEmptyState(
     icon       : ImageVector,
     title      : String,
-    onAddSource: () -> Unit,
+    body       : String,
+    onAddSource: (() -> Unit)?,
     modifier   : Modifier = Modifier,
 ) {
     val haptics = LocalHapticFeedback.current
     Box(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp), contentAlignment = Alignment.TopCenter) {
         Card(
-            modifier  = Modifier.widthIn(max = EmptyStateMaxWidth).fillMaxWidth(),
-            shape     = RoundedCornerShape(24.dp),
-            colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+            modifier = Modifier.widthIn(max = EmptyStateMaxWidth).fillMaxWidth(),
+            shape    = RoundedCornerShape(24.dp),
+            colors   = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         ) {
             Column(
                 modifier            = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 32.dp),
@@ -76,23 +78,25 @@ internal fun LibraryEmptyState(
                     modifier  = Modifier.semantics { heading() },
                 )
                 Text(
-                    text      = stringResource(R.string.library_empty_body),
+                    text      = body,
                     style     = MaterialTheme.typography.bodyMedium,
                     color     = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
-                Spacer(Modifier.height(8.dp))
-                Button(
-                    onClick        = { haptics.confirm(); onAddSource() },
-                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
-                ) {
-                    Icon(
-                        imageVector        = Icons.Filled.Add,
-                        contentDescription = null,
-                        modifier           = Modifier.size(ButtonDefaults.IconSize),
-                    )
-                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                    Text(stringResource(R.string.library_empty_action))
+                if (onAddSource != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick        = { haptics.confirm(); onAddSource() },
+                        contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                    ) {
+                        Icon(
+                            imageVector        = Icons.Filled.Add,
+                            contentDescription = null,
+                            modifier           = Modifier.size(ButtonDefaults.IconSize),
+                        )
+                        Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                        Text(stringResource(R.string.library_empty_action))
+                    }
                 }
             }
         }

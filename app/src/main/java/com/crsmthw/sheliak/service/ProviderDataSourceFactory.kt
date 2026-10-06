@@ -12,6 +12,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -39,6 +40,10 @@ import java.io.InterruptedIOException
  * provider API with `runBlocking`. A resolved source is kept for [RESOLVED_TTL_MS] per media id — ExoPlayer
  * re-opens a source on every seek and retry, and a transcode must not start a new server session each time — and
  * dropped as soon as opening it fails, so the retry resolves afresh (a new connection after a network change).
+ *
+ * A direct play the server refuses at the start of the stream with 503 / 509 ([TranscodeFallback]) marks the item
+ * "force transcode": ExoPlayer's load retry resolves it again, now with `PlaybackPrefs(forceTranscode = true)`.
+ * The mark lasts [RESOLVED_TTL_MS], or until the item leaves the player ([retainForcedTranscodes]).
  */
 class ProviderDataSourceFactory(
     context: Context,
@@ -58,6 +63,13 @@ class ProviderDataSourceFactory(
         clock      = SystemClock::elapsedRealtime,
     )
 
+    /** Media ids whose direct play the server refused (503 / 509): resolved as transcodes until the mark goes. */
+    private val forced = ExpiringCache<String, Unit>(
+        maxEntries = FORCED_MAX_ENTRIES,
+        ttlMs      = RESOLVED_TTL_MS,
+        clock      = SystemClock::elapsedRealtime,
+    )
+
     private val resolver = object : ResolvingDataSource.Resolver {
         override fun resolveDataSpec(dataSpec: DataSpec): DataSpec {
             val key = StreamUri.keyOf(dataSpec.uri.toString()) ?: return dataSpec
@@ -73,6 +85,12 @@ class ProviderDataSourceFactory(
 
     override fun createDataSource(): DataSource = InvalidatingDataSource(upstream.createDataSource())
 
+    /** True while some item is marked "force transcode" (so a playlist change has marks to prune). */
+    fun hasForcedTranscodes(): Boolean = !forced.isEmpty()
+
+    /** Forgets the "force transcode" mark of every item not in [queued] (the player's media ids). */
+    fun retainForcedTranscodes(queued: Set<String>) = forced.retainKeys { it in queued }
+
     private fun resolve(key: TrackKey): PlaybackSource {
         resolved[key.mediaId]?.let { return it }
         val result = try {
@@ -86,6 +104,7 @@ class ProviderDataSourceFactory(
                     val prefs = PlaybackPrefs(
                         directPlayCodecs     = directPlayCodecs,
                         transcodeBitrateKbps = settings.transcodeBitrateKbps.first(),
+                        forceTranscode       = forced[key.mediaId] != null,
                     )
                     provider.resolvePlayback(key, prefs).getOrThrow()
                 }
@@ -110,7 +129,28 @@ class ProviderDataSourceFactory(
         }
     }
 
-    /** Forwards to the resolving source, and forgets a resolved source the moment opening it fails. */
+    /**
+     * A failed open of [key] at [position]: the resolved source is forgotten, and a direct play the server refused
+     * with 503 / 509 marks the item so the retry's resolve asks for a transcode.
+     */
+    private fun onOpenFailed(key: TrackKey, position: Long, error: IOException) {
+        val failed = resolved.remove(key.mediaId)
+        val responseCode = responseCodeOf(error)
+        if (TranscodeFallback.shouldForceTranscode(responseCode, failed?.isTranscode, position)) {
+            Log.i(TAG, "Direct play of ${key.mediaId} refused with HTTP $responseCode; transcoding it")
+            forced[key.mediaId] = Unit
+        }
+    }
+
+    /** The HTTP status of the first [HttpDataSource.InvalidResponseCodeException] in [error]'s causes, if any. */
+    private fun responseCodeOf(error: Throwable): Int? =
+        generateSequence(error) { it.cause }
+            .take(MAX_CAUSE_DEPTH)
+            .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+            .firstOrNull()
+            ?.responseCode
+
+    /** Forwards to the resolving source, and handles a failed open ([onOpenFailed]). */
     private inner class InvalidatingDataSource(private val delegate: DataSource) : DataSource {
 
         override fun addTransferListener(transferListener: TransferListener) =
@@ -119,7 +159,7 @@ class ProviderDataSourceFactory(
         override fun open(dataSpec: DataSpec): Long = try {
             delegate.open(dataSpec)
         } catch (e: IOException) {
-            StreamUri.keyOf(dataSpec.uri.toString())?.let { resolved.remove(it.mediaId) }
+            StreamUri.keyOf(dataSpec.uri.toString())?.let { onOpenFailed(it, dataSpec.position, e) }
             throw e
         }
 
@@ -136,6 +176,8 @@ class ProviderDataSourceFactory(
         const val TAG = "ProviderDataSource"
         const val RESOLVED_TTL_MS: Long = 10 * 60_000
         const val RESOLVED_MAX_ENTRIES: Int = 16
+        const val FORCED_MAX_ENTRIES: Int = 64
+        const val MAX_CAUSE_DEPTH: Int = 8
     }
 }
 
@@ -172,8 +214,20 @@ class ExpiringCache<K : Any, V : Any>(
         }
     }
 
+    /** Removes [key]; returns the value it held (null when none, or when it had expired). */
     @Synchronized
-    fun remove(key: K) {
-        map.remove(key)
+    fun remove(key: K): V? {
+        val entry = map.remove(key) ?: return null
+        return entry.value.takeIf { clock() - entry.putAt < ttlMs }
     }
+
+    /** Removes every entry whose key [keep] rejects. */
+    @Synchronized
+    fun retainKeys(keep: (K) -> Boolean) {
+        map.keys.retainAll(keep)
+    }
+
+    /** True when no entry is held (an expired one not yet dropped still counts). */
+    @Synchronized
+    fun isEmpty(): Boolean = map.isEmpty()
 }

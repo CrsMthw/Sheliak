@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.MergeType
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LibraryAdd
@@ -30,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -49,24 +51,29 @@ import com.crsmthw.sheliak.util.confirm
 import com.crsmthw.sheliak.util.horizontalSystemBarsPadding
 
 /**
- * Settings, pushed from the gear in the library bar. Three sections: **Sources** (where Plex and
- * the other sources will be added and managed — empty until the first provider lands), **Sheliak** (the
- * Theme sheet and the haptics switch) and **About** (the version and the open-source licences).
+ * Settings, pushed from the gear in the library bar. Four sections: **Sources** (one row into Settings →
+ * Sources, where Plex servers are added, synced and removed), **Playback** (the transcode bit rate and the
+ * Merge duplicates switch), **Sheliak** (the Theme sheet and the haptics switch) and **About** (the version and
+ * the open-source licences).
  *
  * It uses the root-screen bar (large flexible, collapsing) with a back arrow rather than a detail bar: it is a
  * long list with a title, not a page about one item.
  */
 @Composable
 fun SettingsScreen(
-    viewModel: SettingsViewModel,
-    onBack   : () -> Unit,
-    modifier : Modifier = Modifier,
+    viewModel    : SettingsViewModel,
+    onBack       : () -> Unit,
+    onOpenSources: () -> Unit,
+    modifier     : Modifier = Modifier,
 ) {
-    val themeMode      by viewModel.themeMode.collectAsStateWithLifecycle()
-    val amoledBlack    by viewModel.amoledBlack.collectAsStateWithLifecycle()
-    val dynamicColor   by viewModel.dynamicColor.collectAsStateWithLifecycle()
-    val accentColor    by viewModel.accentColor.collectAsStateWithLifecycle()
-    val hapticsEnabled by viewModel.hapticsEnabled.collectAsStateWithLifecycle()
+    val themeMode        by viewModel.themeMode.collectAsStateWithLifecycle()
+    val amoledBlack      by viewModel.amoledBlack.collectAsStateWithLifecycle()
+    val dynamicColor     by viewModel.dynamicColor.collectAsStateWithLifecycle()
+    val accentColor      by viewModel.accentColor.collectAsStateWithLifecycle()
+    val hapticsEnabled   by viewModel.hapticsEnabled.collectAsStateWithLifecycle()
+    val transcodeBitrate by viewModel.transcodeBitrateKbps.collectAsStateWithLifecycle()
+    val mergeDuplicates  by viewModel.mergeDuplicates.collectAsStateWithLifecycle()
+    val sourceCount      by viewModel.sourceCount.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     // Saveable, so an open sheet survives a rotation or a fold / unfold.
     var showThemeSheet by rememberSaveable { mutableStateOf(false) }
@@ -114,8 +121,29 @@ fun SettingsScreen(
                     SettingsSectionHeader(stringResource(R.string.settings_section_sources))
                     SettingsItem(
                         icon     = Icons.Outlined.LibraryAdd,
-                        title    = stringResource(R.string.settings_sources_empty),
-                        subtitle = stringResource(R.string.settings_sources_empty_desc),
+                        title    = stringResource(R.string.settings_sources_row),
+                        subtitle = when (val count = sourceCount) {
+                            null -> null
+                            0    -> stringResource(R.string.settings_sources_empty)
+                            else -> pluralStringResource(R.plurals.settings_sources_count, count, count)
+                        },
+                        onClick  = onOpenSources,
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+                    // ── Playback ──────────────────────────────────────────────────
+                    SettingsSectionHeader(stringResource(R.string.settings_section_playback))
+                    TranscodeBitrateSetting(
+                        selectedKbps = transcodeBitrate,
+                        onSelect     = viewModel::setTranscodeBitrateKbps,
+                    )
+                    SettingsToggleItem(
+                        icon            = Icons.AutoMirrored.Outlined.MergeType,
+                        title           = stringResource(R.string.settings_merge_duplicates),
+                        subtitle        = stringResource(R.string.settings_merge_duplicates_desc),
+                        checked         = mergeDuplicates,
+                        onCheckedChange = viewModel::setMergeDuplicates,
                     )
 
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))

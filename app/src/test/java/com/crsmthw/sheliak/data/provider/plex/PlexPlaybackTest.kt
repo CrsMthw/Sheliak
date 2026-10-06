@@ -56,6 +56,35 @@ class PlexPlaybackTest {
     }
 
     @Test
+    fun `AIFF is transcoded to FLAC although its pcm codec is decodable`() {
+        val withPcm = prefs.copy(directPlayCodecs = prefs.directPlayCodecs + "pcm")
+        val aiff = AudioFormatInfo("pcm", "aiff", 1411, 44_100, 16, 2, lossless = true)
+        assertEquals(PlexPlaybackDecision.Transcode(PlexTranscodeTarget.FLAC, null), PlexPlayback.decide(aiff, withPcm, false))
+        assertEquals(
+            PlexPlaybackDecision.Transcode(PlexTranscodeTarget.FLAC, null),
+            PlexPlayback.decide(aiff.copy(container = "aif"), withPcm, false),
+        )
+        assertEquals(
+            PlexPlaybackDecision.Transcode(PlexTranscodeTarget.FLAC, null),
+            PlexPlayback.decide(aiff.copy(container = " AIFF "), withPcm, false),
+        )
+        // WAV carries the same codec and plays direct (Media3 has a WAV extractor).
+        assertEquals(PlexPlaybackDecision.Direct, PlexPlayback.decide(aiff.copy(container = "wav"), withPcm, false))
+        // An unknown container is not held against a decodable codec.
+        assertEquals(PlexPlaybackDecision.Direct, PlexPlayback.decide(aiff.copy(container = null), withPcm, false))
+        // Over relay, a 24/96 AIFF (above the cap) follows the relay rule: AAC within it.
+        assertEquals(
+            PlexPlaybackDecision.Transcode(PlexTranscodeTarget.AAC, 320),
+            PlexPlayback.decide(aiff.copy(bitrateKbps = 4_608, sampleRateHz = 96_000, bitDepth = 24), withPcm, relay = true),
+        )
+        // A CD-quality AIFF (1 411 kbps) fits the relay and is still a FLAC transcode.
+        assertEquals(
+            PlexPlaybackDecision.Transcode(PlexTranscodeTarget.FLAC, null),
+            PlexPlayback.decide(aiff, withPcm, relay = true),
+        )
+    }
+
+    @Test
     fun `an unknown format is transcoded to AAC`() {
         assertEquals(PlexPlaybackDecision.Transcode(PlexTranscodeTarget.AAC, 320), PlexPlayback.decide(null, prefs, false))
     }

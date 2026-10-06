@@ -161,7 +161,9 @@ fun rememberRootTopBarScrollBehavior(
  *
  * The title and subtitle TEXT crossfade when they change ([fadeThroughText]: M3 fade through's 90ms out,
  * 210ms in after 90ms), while the bar itself — height, collapse, actions — never moves. The library's one bar
- * relies on it: a tab change swaps its words, nothing else. A constant string never animates.
+ * relies on it: a tab change swaps its words, nothing else. A constant string never animates. With a
+ * [textKey], only a change of the KEY crossfades; a new string under the same key is written in place — the
+ * library keys its text by tab, so a count ticking up during a sync ("Syncing… 1 200") never fades.
  *
  * @param title the bar's title. One line, ellipsized.
  * @param scrollBehavior what [rememberRootTopBarScrollBehavior] returned.
@@ -173,6 +175,7 @@ fun rememberRootTopBarScrollBehavior(
  *   library's tabs) must all pass one, so the height never changes between them.
  * @param navigationIcon start slot — typically a back `IconButton`.
  * @param actions end slot.
+ * @param textKey what the title / subtitle crossfade follows; null = the strings themselves (see above).
  * @param containerColor the colour of **whatever is behind the bar**, used for both the resting and
  *   the scrolled container. Never leave M3's `scrolledContainerColor` default (`surfaceContainer`):
  *   the AMOLED overlay flattens only `background` / `surface` / `surfaceVariant`, so the default
@@ -189,6 +192,7 @@ fun RootTopBar(
     navigationIcon : @Composable () -> Unit = {},
     actions        : @Composable RowScope.() -> Unit = {},
     containerColor : Color = MaterialTheme.colorScheme.background,
+    textKey        : Any? = null,
 ) {
     val useLargeBar = rootBarIsLarge()
 
@@ -196,8 +200,8 @@ fun RootTopBar(
         containerColor         = containerColor,
         scrolledContainerColor = containerColor,
     )
-    val titleSlot: @Composable () -> Unit = { BarText(title) }
-    val subtitleSlot: (@Composable () -> Unit)? = subtitle?.let { text -> { BarText(text) } }
+    val titleSlot: @Composable () -> Unit = { BarText(title, textKey) }
+    val subtitleSlot: (@Composable () -> Unit)? = subtitle?.let { text -> { BarText(text, textKey) } }
 
     Column(modifier = modifier) {
         // Two branches, two composition groups — see `rememberRootTopBarScrollBehavior` for why.
@@ -248,15 +252,22 @@ fun RootTopBar(
 
 /**
  * One line of bar text, crossfading to a new string with [fadeThroughText] (finite fades, no size spring).
- * The lambda renders the transition's own `shown` string, so the outgoing half keeps the OLD words.
+ * The lambda renders the transition's own `shown` string, so the outgoing half keeps the OLD words. With a
+ * [key], `contentKey` makes a new string under the same key replace the shown one in place, unanimated.
  */
 @Composable
-private fun BarText(text: String) {
+private fun BarText(text: String, key: Any?) {
     AnimatedContent(
-        targetState    = text,
+        // The key travels WITH its text: `contentKey` is asked of old states too, so it must read the key each
+        // state was shown under, never the current one.
+        targetState    = KeyedBarText(text, key),
         transitionSpec = { fadeThroughText() },
+        contentKey     = { shown -> shown.key ?: shown.text },
         label          = "bar-text",
     ) { shown ->
-        Text(shown, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(shown.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
+
+/** A bar string and the key its crossfade follows (see [BarText]). */
+private data class KeyedBarText(val text: String, val key: Any?)

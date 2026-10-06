@@ -44,7 +44,8 @@ import kotlin.random.Random
  *
  * - Audio: `USAGE_MEDIA` / `AUDIO_CONTENT_TYPE_MUSIC` with audio-focus handling, pause on becoming noisy, network
  *   wake lock, the default renderers (no extension decoders), audio offload off (the visualizer needs PCM).
- * - Data: [ProviderDataSourceFactory] (provider streams, content://, files).
+ * - Data: [ProviderDataSourceFactory] (provider streams, content://, files); a playlist change prunes its
+ *   "force transcode" marks to the items still in the player.
  * - Queue: [SheliakShuffleOrder] (play-next / add-to-queue / reorder semantics under shuffle), persisted by
  *   [QueueStore] and restored here on start (not prepared, so nothing plays and no notification appears until
  *   the user presses play).
@@ -57,6 +58,7 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var player: ExoPlayer
     private lateinit var reporting: PlayReportingHook
     private lateinit var callback: SheliakMediaLibraryCallback
+    private lateinit var dataSources: ProviderDataSourceFactory
     private var session: MediaLibrarySession? = null
 
     /** Work tied to this service (browse requests, the restore); cancelled in [onDestroy]. */
@@ -66,13 +68,12 @@ class PlaybackService : MediaLibraryService() {
         super.onCreate()
         container = (application as SheliakApplication).container
 
+        dataSources = ProviderDataSourceFactory(
+            this, container.httpClient, container.providerRegistry, container.settingsRepository,
+        )
         player = ExoPlayer.Builder(this)
             .setRenderersFactory(DefaultRenderersFactory(this))
-            .setMediaSourceFactory(
-                DefaultMediaSourceFactory(
-                    ProviderDataSourceFactory(this, container.httpClient, container.providerRegistry, container.settingsRepository),
-                ),
-            )
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSources))
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -89,6 +90,7 @@ class PlaybackService : MediaLibraryService() {
             .build()
         player.setShuffleOrder(SheliakShuffleOrder(Random.nextLong()))
         player.addListener(shuffleKeeper)
+        player.addListener(fallbackPruner)
         player.addAnalyticsListener(formatReporter)
         container.playbackSignals.publishAudioSessionId(player.audioSessionId)
 
@@ -129,6 +131,7 @@ class PlaybackService : MediaLibraryService() {
         session = null
         player.removeAnalyticsListener(formatReporter)
         player.removeListener(shuffleKeeper)
+        player.removeListener(fallbackPruner)
         player.release()
         container.playbackSignals.clearFormats()
         serviceScope.cancel()
@@ -162,6 +165,17 @@ class PlaybackService : MediaLibraryService() {
             if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED && order.fresh && player.shuffleModeEnabled) {
                 startShuffleFromCurrent()
             }
+        }
+    }
+
+    /** A "force transcode" mark lasts only while its item is in the player (ProviderDataSourceFactory). */
+    private val fallbackPruner = object : Player.Listener {
+        override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+            if (reason != Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED || !dataSources.hasForcedTranscodes()) return
+            val window = Timeline.Window()
+            val queued = HashSet<String>(timeline.windowCount * 2)
+            for (index in 0 until timeline.windowCount) queued += timeline.getWindow(index, window).mediaItem.mediaId
+            dataSources.retainForcedTranscodes(queued)
         }
     }
 

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Library (ui/screens/library): the four tabs, their carousels, two-pane hints and the detail screens.
+         The tab names, counts and empty-state titles shared with M0 stay in strings.xml. -->
+
+    <!-- The Tracks subtitle while a source syncs. %1$d is the number of items read so far. -->
+    <string name="library_syncing">Syncing… %1$d</string>
+    <!-- Empty-state body when sources exist and a first sync is still reading the library -->
+    <string name="library_empty_syncing">Sheliak is reading your library. It fills in as the sync goes.</string>
+    <!-- Empty-state body when sources exist but this list is empty -->
+    <string name="library_empty_pull">Nothing here yet. Pull down to sync your sources.</string>
+
+    <!-- Tracks tab: the carousels above All tracks, and the list's own label under them -->
+    <string name="library_recently_played">Recently played</string>
+    <string name="library_most_played">Most played</string>
+    <string name="library_all_tracks">All tracks</string>
+
+    <!-- Two-pane tabs (unfolded / tablet): the right pane before anything is picked -->
+    <string name="library_pick_album">Pick an album to see its tracks</string>
+    <string name="library_pick_artist">Pick an artist to see their albums</string>
+    <string name="library_pick_playlist">Pick a playlist to see its tracks</string>
+
+    <!-- Detail screens -->
+    <!-- Header above each disc's tracks on a multi-disc album. %1$d is the disc number. -->
+    <string name="library_disc">Disc %1$d</string>
+    <!-- Joins the parts of a hero's meta line: "2019 · 12 tracks · 48m". Quoted to keep the spaces. -->
+    <string name="library_meta_separator" translatable="false">" · "</string>
+    <!-- Shown for a track, album or artist whose source reported no artist name -->
+    <string name="library_unknown_artist">Unknown artist</string>
+    <!-- Shown when the item a detail screen was opened for has left the library (a sync removed it) -->
+    <string name="library_missing_album">This album is no longer in your library.</string>
+    <string name="library_missing_artist">This artist is no longer in your library.</string>
+    <string name="library_missing_playlist">This playlist is no longer in your library.</string>
+</resources>

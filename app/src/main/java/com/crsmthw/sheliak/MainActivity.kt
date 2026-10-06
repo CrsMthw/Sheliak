@@ -1,7 +1,10 @@
 package com.crsmthw.sheliak
 
+import android.app.SearchManager
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -32,6 +35,9 @@ import com.crsmthw.sheliak.util.HapticsConfig
  *
  * The Activity is never recreated for a theme change (`uiMode` is in the manifest's `configChanges`): the
  * theme is observed here and recomposes in place.
+ *
+ * A voice "play …" on the phone (Assistant's `MEDIA_PLAY_FROM_SEARCH`) arrives here, in [onCreate] or — the
+ * Activity is singleTop — [onNewIntent], and goes to the player as a search ([handlePlayFromSearch]).
  */
 class MainActivity : ComponentActivity() {
 
@@ -46,6 +52,11 @@ class MainActivity : ComponentActivity() {
 
         val container = (application as SheliakApplication).container
         val settings = container.settingsRepository
+
+        // A fresh start only: a recreation or a launch from Recents would replay the old request.
+        if (savedInstanceState == null && (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0) {
+            handlePlayFromSearch(intent)
+        }
 
         setContent {
             // Nullable until DataStore's first emission — null means "not read yet", never a setting value.
@@ -88,5 +99,17 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handlePlayFromSearch(intent)
+    }
+
+    /** `MEDIA_PLAY_FROM_SEARCH` → the player resolves the query (an empty one plays Recently played). */
+    private fun handlePlayFromSearch(intent: Intent) {
+        if (intent.action != MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH) return
+        val query = intent.getStringExtra(SearchManager.QUERY).orEmpty()
+        (application as SheliakApplication).container.playerStateManager.playFromSearch(query)
     }
 }

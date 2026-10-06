@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Player surfaces (ui/player, ui/screens/player, ui/screens/queue): the mini bar, the pop-out panel, the full
+         player and the queue. The two screen titles are player_title and queue_title in strings.xml. -->
+
+    <!-- Mini bar: what a tap on it does, for accessibility services -->
+    <string name="player_open">Open the player</string>
+    <!-- Pop-out panel: the close button, and the tap on the dimmed screen around the panel -->
+    <string name="player_close_panel">Close the player</string>
+    <!-- Pop-out panel: the button that opens the full-screen player -->
+    <string name="player_full_screen">Full-screen player</string>
+
+    <!-- Transport -->
+    <string name="player_play">Play</string>
+    <string name="player_pause">Pause</string>
+    <string name="player_next">Next track</string>
+    <string name="player_previous">Previous track</string>
+    <string name="player_shuffle">Shuffle</string>
+    <string name="player_repeat">Repeat</string>
+    <!-- Spoken state of the shuffle and repeat buttons -->
+    <string name="player_state_on">On</string>
+    <string name="player_state_off">Off</string>
+    <!-- Spoken state of the repeat button: the whole queue repeats -->
+    <string name="player_repeat_all">Repeating all tracks</string>
+    <!-- Spoken state of the repeat button: the playing track repeats -->
+    <string name="player_repeat_one">Repeating this track</string>
+
+    <!-- Seek bar: what the slider is, for accessibility services -->
+    <string name="player_seek">Playback position</string>
+    <!-- Time left in the track, under the seek bar. %1$s is a time such as 2:31. -->
+    <string name="player_time_remaining">−%1$s</string>
+    <!-- Album art, when the album has no title to describe it with -->
+    <string name="player_album_art">Album art</string>
+    <!-- The full player's title line while nothing is loaded -->
+    <string name="player_nothing_playing">Nothing playing</string>
+    <!-- A track whose artist the source does not report -->
+    <string name="player_unknown_artist">Unknown artist</string>
+
+    <!-- Quality chip under the seek bar: the tier, then the exact values. %1$s is the tier, %2$s the values. -->
+    <string name="quality_chip">%1$s · %2$s</string>
+    <string name="quality_hi_res_lossless">Hi-Res Lossless</string>
+    <string name="quality_lossless">Lossless</string>
+    <string name="quality_high_quality">High Quality</string>
+    <string name="quality_high_efficiency">High Efficiency</string>
+    <!-- %1$s is the codec (FLAC, ALAC…), %2$d the bit depth, %3$s the sample rate in kHz (44.1, 96…) -->
+    <string name="quality_detail_depth_rate">%1$s %2$d-bit / %3$s kHz</string>
+    <!-- %1$s is the codec, %2$s the sample rate in kHz -->
+    <string name="quality_detail_rate">%1$s %2$s kHz</string>
+    <!-- %1$s is the codec, %2$d the bit depth -->
+    <string name="quality_detail_depth">%1$s %2$d-bit</string>
+    <!-- %1$s is the codec (MP3, AAC, OPUS…), %2$d the bit rate in kilobits per second -->
+    <string name="quality_detail_bitrate">%1$s %2$d kbps</string>
+
+    <!-- Queue: the bar's subtitle -->
+    <plurals name="queue_track_count">
+        <item quantity="one">%1$d track</item>
+        <item quantity="other">%1$d tracks</item>
+    </plurals>
+    <!-- Queue header chip: repeat mode -->
+    <string name="queue_repeat_all">Repeat all</string>
+    <string name="queue_repeat_one">Repeat one</string>
+    <!-- Queue row: what a tap does, for accessibility services -->
+    <string name="queue_play_row">Play this track</string>
+    <!-- Queue row: the drag handle -->
+    <string name="queue_reorder">Drag to reorder</string>
+    <!-- Queue row: swiping it away, and the matching accessibility action -->
+    <string name="queue_remove">Remove from queue</string>
+    <!-- Queue row: accessibility actions that move it one place -->
+    <string name="queue_move_up">Move up</string>
+    <string name="queue_move_down">Move down</string>
+    <!-- Queue: nothing queued -->
+    <string name="queue_empty_title">The queue is empty</string>
+    <string name="queue_empty_body">Play an album, a playlist or a track and it shows up here.</string>
+</resources>

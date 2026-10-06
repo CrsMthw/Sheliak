@@ -97,6 +97,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.splashscreen)
+    // Custom Tabs: the Plex sign-in page (plex.tv) opens in one
+    implementation(libs.androidx.browser)
 
     // Compose BOM + UI
     implementation(platform(libs.androidx.compose.bom))
@@ -145,6 +147,8 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.okhttp)
     implementation(libs.androidx.graphics.shapes)
+    // Album-art colours: the player's tint and edge colour (Lyra's AlbumArtColor port)
+    implementation(libs.androidx.palette)
 
     // Theme: seed colour → full tonal scheme
     implementation(libs.material.color.utilities)

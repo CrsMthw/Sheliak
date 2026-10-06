@@ -124,6 +124,10 @@ class PlayerStateManager(
         override fun onEvents(player: Player, events: Player.Events) {
             val c = controller ?: return
             if (playlistChanged) {
+                // A voice search (playFromSearch) is masked as one item with no id until the session's resolved
+                // timeline arrives: wait for that rather than publish an empty track.
+                val firstId = if (c.mediaItemCount > 0) c.getMediaItemAt(0).mediaId else null
+                if (SearchRequest.isPlaceholder(c.mediaItemCount, firstId)) return
                 playlistChanged = false
                 refreshQueue(c)
             } else if (events.contains(Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED)) {
@@ -228,6 +232,22 @@ class PlayerStateManager(
         val window = order.getOrNull(index) ?: return@withController
         c.seekToDefaultPosition(window)
         if (c.playbackState == Player.STATE_IDLE) c.prepare()
+        c.play()
+    }
+
+    /**
+     * A voice "play …" from the phone (`MEDIA_PLAY_FROM_SEARCH`, MainActivity): one item with an empty media id
+     * and the query as `requestMetadata.searchQuery`, which the session resolves exactly as it does Android Auto's
+     * voice search (the matching tracks; an empty query plays Recently played). Not part of [PlaybackController]:
+     * only the Activity calls it.
+     */
+    fun playFromSearch(query: String) = withController { c ->
+        val request = MediaItem.Builder()
+            .setMediaId("")
+            .setRequestMetadata(MediaItem.RequestMetadata.Builder().setSearchQuery(query).build())
+            .build()
+        c.setMediaItem(request)
+        c.prepare()
         c.play()
     }
 
@@ -425,4 +445,19 @@ class PlayerStateManager(
             )
         }
     }
+}
+
+/**
+ * A voice "play …" sent as one item with an empty media id and the query as `requestMetadata.searchQuery`
+ * ([PlayerStateManager.playFromSearch]). Until the session's resolved timeline arrives, the controller shows its
+ * own masking timeline holding only that request. Pure; tested in SearchRequestTest.
+ */
+object SearchRequest {
+
+    /**
+     * True when a timeline of [itemCount] items whose first media id is [firstMediaId] is that placeholder: the
+     * session never puts an item with an empty media id in the player, so only the controller's mask has one.
+     */
+    fun isPlaceholder(itemCount: Int, firstMediaId: String?): Boolean =
+        itemCount == 1 && firstMediaId?.isEmpty() == true
 }

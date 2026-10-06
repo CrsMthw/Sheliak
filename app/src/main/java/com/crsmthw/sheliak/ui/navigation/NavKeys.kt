@@ -1,6 +1,7 @@
 package com.crsmthw.sheliak.ui.navigation
 
 import androidx.navigation3.runtime.NavKey
+import com.crsmthw.sheliak.domain.TrackKey
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
@@ -26,14 +27,70 @@ import kotlinx.serialization.modules.subclass
 
 @Serializable data object Settings : NavKey
 
-/** Placeholder until the player lands; pushed by the player surface's `onRequestPlayer`. */
+/** The full player; pushed by the player surface (the mini bar) and from nowhere else. */
 @Serializable data object Player : NavKey
 
-/** Placeholder until the player lands; pushed from the player. */
+/** The play queue; pushed from the player and the player surface. */
 @Serializable data object Queue : NavKey
 
-/** Every key, so the saved-state module below and its test cannot drift from the key list. */
-val AllNavKeys: List<NavKey> = listOf(Intro, Library, Search, Settings, Player, Queue)
+/**
+ * One album, pushed from the library below 600dp (at 600dp and up the Albums tab shows it in its own right pane
+ * instead), from search, from an artist and from a track's "Go to album". [providerId] / [itemId] are the
+ * album's `TrackKey`, flattened so the key stays a plain serializable value.
+ */
+@Serializable data class AlbumDetail(val providerId: String, val itemId: String) : NavKey
+
+/** One artist and their albums; pushed like [AlbumDetail]. */
+@Serializable data class ArtistDetail(val providerId: String, val itemId: String) : NavKey
+
+/** One playlist ([id] is its local row id, stable across syncs); pushed like [AlbumDetail]. */
+@Serializable data class PlaylistDetail(val id: Long) : NavKey
+
+/** The album an [AlbumDetail] key opens. */
+val AlbumDetail.albumKey: TrackKey get() = TrackKey(providerId, itemId)
+
+/** The artist an [ArtistDetail] key opens. */
+val ArtistDetail.artistKey: TrackKey get() = TrackKey(providerId, itemId)
+
+/** The detail key for an album. */
+fun albumDetailOf(album: TrackKey): AlbumDetail = AlbumDetail(album.providerId, album.itemId)
+
+/** The detail key for an artist. */
+fun artistDetailOf(artist: TrackKey): ArtistDetail = ArtistDetail(artist.providerId, artist.itemId)
+
+/** Settings → Sources: the configured sources, their sync state, Sync now / Remove, and "Add Plex server". */
+@Serializable data object Sources : NavKey
+
+/**
+ * The Plex sign-in and setup flow — ONE entry with its own steps (PIN, server, local network, libraries). Pushed
+ * from Sources, from the library's empty state and after Intro; finishing pops it, which lands on whatever pushed
+ * it.
+ */
+@Serializable data object PlexSetup : NavKey
+
+/**
+ * Every key, so the saved-state module below and its test cannot drift from the key list. The detail keys carry
+ * data, so a sample instance of each stands in for its class.
+ */
+val AllNavKeys: List<NavKey> = listOf(
+    Intro, Library, Search, Settings, Player, Queue,
+    AlbumDetail(providerId = "plex:sample", itemId = "1"),
+    ArtistDetail(providerId = "plex:sample", itemId = "2"),
+    PlaylistDetail(id = 3L),
+    Sources, PlexSetup,
+)
+
+/**
+ * Whether the floating player surface (the mini bar and the pop-out panel) may show over the entry on top of the
+ * back stack: on the library, search and the detail screens, which are where music is browsed; never over Intro,
+ * Settings, Sources or the Plex setup (nothing to browse there), nor over the full player and the queue (which
+ * ARE the player). Null — no entry yet — is false.
+ */
+fun playerSurfaceAllowed(top: NavKey?): Boolean = when (top) {
+    Library, Search                                    -> true
+    is AlbumDetail, is ArtistDetail, is PlaylistDetail -> true
+    else                                               -> false
+}
 
 /**
  * The library's four tabs, in suite order. Not navigation keys: the selected tab is saveable state inside the
@@ -62,10 +119,12 @@ fun startBackStack(introDone: Boolean): List<NavKey> = listOf(if (introDone) Lib
 
 /**
  * The back stack once Intro is done: Intro is replaced, never kept under Library, so back from the library
- * leaves the app instead of returning to the welcome screen. Any other stack is returned unchanged.
+ * leaves the app instead of returning to the welcome screen — with [next] pushed on top when Intro's primary
+ * action asked to go on somewhere (the Plex setup, when no source exists yet). Any stack without Intro is
+ * returned unchanged.
  */
-fun backStackAfterIntro(backStack: List<NavKey>): List<NavKey> =
-    if (Intro in backStack) listOf(Library) else backStack
+fun backStackAfterIntro(backStack: List<NavKey>, next: NavKey? = null): List<NavKey> =
+    if (Intro in backStack) listOfNotNull(Library, next) else backStack
 
 /**
  * Turns this back stack into [target] by editing it in place — trimming the tail, then overwriting or
@@ -97,5 +156,10 @@ val NavKeySerializersModule: SerializersModule = SerializersModule {
         subclass(Settings::class)
         subclass(Player::class)
         subclass(Queue::class)
+        subclass(AlbumDetail::class)
+        subclass(ArtistDetail::class)
+        subclass(PlaylistDetail::class)
+        subclass(Sources::class)
+        subclass(PlexSetup::class)
     }
 }

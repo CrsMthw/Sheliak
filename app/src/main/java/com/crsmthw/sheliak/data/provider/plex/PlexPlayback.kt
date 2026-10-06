@@ -42,9 +42,16 @@ object PlexPlayback {
     const val LIBRARY_IDENTIFIER: String = "com.plexapp.plugins.library"
 
     /**
-     * Direct play when the device decodes the codec ([PlaybackPrefs.directPlayCodecs]) and nothing forces a
-     * transcode; else the transcoder: FLAC for a lossless source, AAC at [PlaybackPrefs.transcodeBitrateKbps] for a
-     * lossy (or unknown) one.
+     * Containers the player cannot open even when it decodes their codec: Media3 has no AIFF extractor (an AIFF
+     * file's codec is `pcm`, which plays from WAV with no decoder at all). Plex's spelling as PlexMapping stores
+     * it — trimmed, lower case — plus the short form.
+     */
+    val NO_EXTRACTOR_CONTAINERS: Set<String> = setOf("aiff", "aif")
+
+    /**
+     * Direct play when the device decodes the codec ([PlaybackPrefs.directPlayCodecs]), the player can open the
+     * container (not one of [NO_EXTRACTOR_CONTAINERS]) and nothing forces a transcode; else the transcoder: FLAC
+     * for a lossless source, AAC at [PlaybackPrefs.transcodeBitrateKbps] for a lossy (or unknown) one.
      *
      * Over [relay] (2 Mbps): a source above [RELAY_DIRECT_MAX_KBPS] — or a lossless one of unknown bit rate — is
      * transcoded to AAC at most [RELAY_TRANSCODE_MAX_KBPS] even when the device could decode it, because neither
@@ -52,11 +59,13 @@ object PlexPlayback {
      */
     fun decide(format: AudioFormatInfo?, prefs: PlaybackPrefs, relay: Boolean): PlexPlaybackDecision {
         val codec = format?.codec?.lowercase(Locale.ROOT)
+        val container = format?.container?.trim()?.lowercase(Locale.ROOT)
         val lossless = format?.lossless == true
         val sourceKbps = format?.bitrateKbps ?: if (lossless) Int.MAX_VALUE else 0
         val overRelay = relay && sourceKbps > RELAY_DIRECT_MAX_KBPS
         val decodable = codec != null && prefs.directPlayCodecs.any { it.lowercase(Locale.ROOT) == codec }
-        if (decodable && !prefs.forceTranscode && !overRelay) return PlexPlaybackDecision.Direct
+        val openable = container !in NO_EXTRACTOR_CONTAINERS
+        if (decodable && openable && !prefs.forceTranscode && !overRelay) return PlexPlaybackDecision.Direct
         val lossyKbps = if (relay) minOf(prefs.transcodeBitrateKbps, RELAY_TRANSCODE_MAX_KBPS) else prefs.transcodeBitrateKbps
         return if (lossless && !overRelay) {
             PlexPlaybackDecision.Transcode(PlexTranscodeTarget.FLAC, bitrateKbps = null)

@@ -4,6 +4,7 @@ package com.crsmthw.sheliak.service
 
 import android.content.Context
 import android.os.Bundle
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -42,6 +43,9 @@ import kotlinx.coroutines.withContext
  *
  * Work runs on [scope] off the main thread (building thousands of MediaItems must not jank the UI, which shares
  * the main thread with this service); only player calls hop back to main.
+ *
+ * Only Sheliak, trusted controllers and a short allowlist may connect ([SessionAccessPolicy]): the items carry
+ * provider art URLs with the server token in them.
  */
 class SheliakMediaLibraryCallback(
     private val context: Context,
@@ -57,15 +61,34 @@ class SheliakMediaLibraryCallback(
 
     // ── Connection + custom commands ─────────────────────────────────────────
 
+    /**
+     * The access gate. Media3 1.11's default `onConnect` is a placeholder result with NO commands (the session
+     * then asks `onConnectAsync`), so nothing here is derived from `super`: an accepted controller gets Media3's
+     * full default commands explicitly — an allowlisted one too, which Media3 would otherwise hold to read-only
+     * commands when it is not trusted (Android Auto must play, skip and browse).
+     */
     override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
-        val base = super.onConnect(session, controller)
-        val ownController = controller.packageName == context.packageName && !session.isMediaNotificationController(controller)
-        if (!base.isAccepted || !ownController) return base
-        // Our own controller (PlayerStateManager) may reorder a shuffled queue in play order.
+        val access = SessionAccessPolicy.decide(
+            packageName            = controller.packageName,
+            ownPackage             = context.packageName,
+            trusted                = controller.isTrusted,
+            packageNameVerified    = controller.isPackageNameVerified,
+            notificationController = session.isMediaNotificationController(controller),
+        )
+        if (access == SessionAccess.REJECT) {
+            Log.i(TAG, "Rejected media controller ${controller.packageName}")
+            return MediaSession.ConnectionResult.reject()
+        }
+        val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
         return MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
-            .setAvailablePlayerCommands(base.availablePlayerCommands)
+            .setAvailablePlayerCommands(MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS)
             .setAvailableSessionCommands(
-                base.availableSessionCommands.buildUpon().add(SheliakCommands.moveInPlayOrder).build(),
+                if (access == SessionAccess.OWN_APP) {
+                    // Our own controller (PlayerStateManager) may reorder a shuffled queue in play order.
+                    sessionCommands.buildUpon().add(SheliakCommands.moveInPlayOrder).build()
+                } else {
+                    sessionCommands
+                },
             )
             .build()
     }
@@ -187,6 +210,14 @@ class SheliakMediaLibraryCallback(
             if (at >= 0) return@future MediaItemsWithStartPosition(list.map(items::playable), at, startPositionMs)
         }
         val groups = resolve(mediaItems)
+        // A voice search that matched nothing (phone Assistant and Auto both send ONE item with an empty mediaId
+        // and a searchQuery) fails the request, so the queue that is playing is left alone instead of being
+        // replaced by an empty one. Media3 never touches the player when this future fails.
+        val voiceSearch = mediaItems.isNotEmpty() &&
+            mediaItems.all { it.mediaId.isEmpty() && it.requestMetadata.searchQuery != null }
+        if (voiceSearch && groups.all { it.isEmpty() }) {
+            throw NoSuchElementException("No tracks match the voice search")
+        }
         val start = PlaylistExpansion.remapStartIndex(groups.map { it.size }, startIndex)
         MediaItemsWithStartPosition(groups.flatten(), start, startPositionMs)
     }
@@ -331,6 +362,8 @@ class SheliakMediaLibraryCallback(
     )
 
     companion object {
+        private const val TAG = "SheliakSession"
+
         /** Rows per browse list (Android Auto shows far fewer; search reaches the rest). */
         const val LIST_CAP: Int = 500
         const val RECENT_CAP: Int = 50

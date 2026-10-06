@@ -1,11 +1,13 @@
 package com.crsmthw.sheliak.ui.navigation
 
 import androidx.navigation3.runtime.NavKey
+import com.crsmthw.sheliak.domain.TrackKey
 import kotlinx.serialization.PolymorphicSerializer
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -16,8 +18,56 @@ class NavKeysTest {
 
     @Test
     fun `AllNavKeys lists every key exactly once`() {
-        assertEquals(listOf(Intro, Library, Search, Settings, Player, Queue), AllNavKeys)
-        assertEquals(AllNavKeys.size, AllNavKeys.toSet().size)
+        assertEquals(
+            listOf(Intro, Library, Search, Settings, Player, Queue, Sources, PlexSetup),
+            AllNavKeys.filter { it !is AlbumDetail && it !is ArtistDetail && it !is PlaylistDetail },
+        )
+        assertEquals(1, AllNavKeys.count { it is AlbumDetail })
+        assertEquals(1, AllNavKeys.count { it is ArtistDetail })
+        assertEquals(1, AllNavKeys.count { it is PlaylistDetail })
+        assertEquals(AllNavKeys.size, AllNavKeys.map { it::class }.toSet().size)
+    }
+
+    @Test
+    fun `detail keys round-trip their item keys`() {
+        val album = TrackKey("plex:abc", "101")
+        val artist = TrackKey("plex:abc", "7")
+        assertEquals(album, albumDetailOf(album).albumKey)
+        assertEquals(artist, artistDetailOf(artist).artistKey)
+        assertEquals(AlbumDetail("plex:abc", "101"), albumDetailOf(album))
+    }
+
+    @Test
+    fun `detail keys with the same item are equal, so a double push is a no-op`() {
+        assertEquals(AlbumDetail("p", "1"), AlbumDetail("p", "1"))
+        assertEquals(PlaylistDetail(4L), PlaylistDetail(4L))
+    }
+
+    // ── Player surface ──────────────────────────────────────────────────────
+
+    @Test
+    fun `the player surface shows on the library, search and the details`() {
+        listOf(Library, Search, AlbumDetail("p", "1"), ArtistDetail("p", "2"), PlaylistDetail(3L)).forEach { key ->
+            assertTrue(playerSurfaceAllowed(key), "$key")
+        }
+    }
+
+    @Test
+    fun `the player surface never shows over intro, settings, sources, setup, the player or the queue`() {
+        listOf(Intro, Settings, Sources, PlexSetup, Player, Queue).forEach { key ->
+            assertFalse(playerSurfaceAllowed(key), "$key")
+        }
+    }
+
+    @Test
+    fun `the player surface stays hidden with no entry`() {
+        assertFalse(playerSurfaceAllowed(null))
+    }
+
+    @Test
+    fun `every key is decided by the player surface rule`() {
+        val shown = AllNavKeys.filter(::playerSurfaceAllowed).map { it::class }.toSet()
+        assertEquals(setOf(Library::class, Search::class, AlbumDetail::class, ArtistDetail::class, PlaylistDetail::class), shown)
     }
 
     // ── Library tabs ────────────────────────────────────────────────────────
@@ -63,6 +113,11 @@ class NavKeysTest {
     @Test
     fun `finishing Intro replaces it with Library`() {
         assertEquals(listOf<NavKey>(Library), backStackAfterIntro(listOf(Intro)))
+    }
+
+    @Test
+    fun `finishing Intro towards the Plex setup pushes it onto Library`() {
+        assertEquals(listOf(Library, PlexSetup), backStackAfterIntro(listOf(Intro), next = PlexSetup))
     }
 
     @Test
@@ -118,6 +173,13 @@ class NavKeysTest {
     }
 
     @Test
+    fun `replaceWith turns Intro into Library and the Plex setup`() {
+        val stack = mutableListOf<NavKey>(Intro)
+        stack.replaceWith(backStackAfterIntro(stack, next = PlexSetup))
+        assertEquals(listOf(Library, PlexSetup), stack)
+    }
+
+    @Test
     fun `replaceWith refuses an empty target`() {
         assertFailsWith<IllegalArgumentException> { mutableListOf<NavKey>(Library).replaceWith(emptyList()) }
     }
@@ -130,7 +192,10 @@ class NavKeysTest {
         val serializer = PolymorphicSerializer(NavKey::class)
         AllNavKeys.forEach { key ->
             val encoded = json.encodeToString(serializer, key)
-            assertSame(key, json.decodeFromString(serializer, encoded), encoded)
+            val decoded = json.decodeFromString(serializer, encoded)
+            // Objects come back as the same instance; the detail keys as an equal value.
+            val carriesData = key is AlbumDetail || key is ArtistDetail || key is PlaylistDetail
+            if (carriesData) assertEquals(key, decoded, encoded) else assertSame(key, decoded, encoded)
         }
     }
 

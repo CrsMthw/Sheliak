@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Sources (ui/screens/sources): Settings → Sources, the Plex setup flow, and provider failures. -->
+
+    <!-- Settings → Sources -->
+    <string name="sources_title">Sources</string>
+    <string name="sources_section_servers">Servers</string>
+    <string name="sources_empty">No sources yet. Add a Plex server to fill your library.</string>
+    <string name="sources_add_plex">Add Plex server</string>
+    <string name="sources_add_plex_desc">Sign in with your Plex account and pick a server</string>
+    <string name="sources_sync_now">Sync now</string>
+    <string name="sources_remove">Remove</string>
+    <!-- Remove confirmation. %1$s is the server's name. -->
+    <string name="sources_remove_title">Remove %1$s?</string>
+    <string name="sources_remove_body">Its tracks, albums and playlists leave your library. Nothing changes on the server.</string>
+    <string name="sources_cancel">Cancel</string>
+    <string name="sources_remove_failed">Couldn’t remove the source</string>
+    <string name="sources_ok">OK</string>
+    <!-- One source's second line: %1$s is its track count ("1,204 tracks"), %2$s its sync status -->
+    <string name="sources_row_summary">%1$s · %2$s</string>
+    <string name="sources_status_never">Not synced yet</string>
+    <!-- %1$s is when, relative and already localised ("5 minutes ago") -->
+    <string name="sources_status_synced">Synced %1$s</string>
+    <!-- %1$d items read so far of %2$d -->
+    <string name="sources_status_running_of">Syncing… %1$d of %2$d</string>
+    <!-- %1$d items read so far, total not known yet -->
+    <string name="sources_status_running">Syncing… %1$d</string>
+    <!-- %1$s is the failure in words (one of the provider_error_* strings) -->
+    <string name="sources_status_failed">Sync failed: %1$s</string>
+
+    <!-- Why a provider call failed -->
+    <string name="provider_error_network">Couldn’t reach the server</string>
+    <string name="provider_error_auth">Your sign-in has expired. Sign in again.</string>
+    <string name="provider_error_server">The server reported an error</string>
+    <string name="provider_error_parse">The server sent something Sheliak couldn’t read</string>
+    <string name="provider_error_storage">Couldn’t save to the library on this phone</string>
+    <string name="provider_error_unavailable">This source isn’t available</string>
+    <string name="provider_error_unknown">Something went wrong</string>
+
+    <!-- Plex setup -->
+    <string name="plex_setup_title">Add a Plex server</string>
+    <string name="plex_retry">Retry</string>
+    <string name="plex_checking_account">Checking your Plex account…</string>
+    <string name="plex_pin_title">Sign in to Plex</string>
+    <string name="plex_pin_requesting">Getting a sign-in code…</string>
+    <string name="plex_pin_body">Open plex.tv and sign in. If it asks for a code, enter this one:</string>
+    <string name="plex_pin_open">Open plex.tv</string>
+    <string name="plex_pin_waiting">Waiting for you to sign in… Come back here when plex.tv says you’re done.</string>
+    <string name="plex_pin_no_browser">No browser is installed to open plex.tv.</string>
+    <string name="plex_servers_title">Choose a server</string>
+    <string name="plex_servers_loading">Looking for your servers…</string>
+    <string name="plex_servers_empty">There are no Plex servers on this account.</string>
+    <string name="plex_server_owned">Your server</string>
+    <!-- A server shared with the user. %1$s is the owner's Plex name. -->
+    <string name="plex_server_shared_by">Shared by %1$s</string>
+    <string name="plex_server_shared">Shared with you</string>
+    <!-- The online dot's description -->
+    <string name="plex_server_online">Online</string>
+    <string name="plex_server_offline">Offline</string>
+    <string name="plex_local_title">Find your server on this network</string>
+    <!-- %1$s is the server's name -->
+    <string name="plex_local_body">Allow Sheliak to look for devices on your local network so it can reach %1$s directly when you’re at home. Without it, Sheliak still connects over the internet.</string>
+    <string name="plex_local_allow">Allow</string>
+    <string name="plex_local_skip">Not now</string>
+    <string name="plex_libraries_title">Choose music libraries</string>
+    <string name="plex_libraries_loading">Reading the server’s libraries…</string>
+    <string name="plex_libraries_empty">This server has no music libraries.</string>
+    <string name="plex_libraries_add">Add to Sheliak</string>
+    <string name="plex_finishing">Adding the server…</string>
+</resources>

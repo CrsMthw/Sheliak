@@ -23,6 +23,7 @@ import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.FolderShared
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -31,6 +32,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -39,42 +41,49 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.crsmthw.sheliak.R
 import com.crsmthw.sheliak.util.confirm
 import com.crsmthw.sheliak.util.horizontalSystemBarsPadding
 
-/** One source the welcome screen offers: its icon, name and one-line description. */
+/** One source the welcome screen offers: its icon, name, one-line description, and whether it can be set up yet. */
 private data class IntroSource(
     val icon: ImageVector,
     @param:StringRes val nameRes: Int,
     @param:StringRes val descriptionRes: Int,
+    val available: Boolean,
 )
 
-/** In the order they arrive: Plex first, then this device, Jellyfin and Samba. */
+/** In the order they arrive: Plex first (available since M1), then this device, Jellyfin and Samba. */
 private val IntroSources = listOf(
-    IntroSource(Icons.Outlined.Dns,          R.string.source_plex,     R.string.intro_source_plex_desc),
-    IntroSource(Icons.Outlined.PhoneAndroid, R.string.source_local,    R.string.intro_source_local_desc),
-    IntroSource(Icons.Outlined.Storage,      R.string.source_jellyfin, R.string.intro_source_jellyfin_desc),
-    IntroSource(Icons.Outlined.FolderShared, R.string.source_samba,    R.string.intro_source_samba_desc),
+    IntroSource(Icons.Outlined.Dns,          R.string.source_plex,     R.string.intro_source_plex_desc,     available = true),
+    IntroSource(Icons.Outlined.PhoneAndroid, R.string.source_local,    R.string.intro_source_local_desc,    available = false),
+    IntroSource(Icons.Outlined.Storage,      R.string.source_jellyfin, R.string.intro_source_jellyfin_desc, available = false),
+    IntroSource(Icons.Outlined.FolderShared, R.string.source_samba,    R.string.intro_source_samba_desc,    available = false),
 )
 
 /** Wider than this the column stops growing, so the cards stay readable on an unfolded or tablet screen. */
 private val IntroMaxWidth = 560.dp
 
 /**
- * The first-run welcome: the app name, one line on what Sheliak is, and the four kinds of source it reads.
- * No source can be added yet, so every card shows a "Coming next" state and the way forward is "Skip for now",
- * which stores `intro_done` — the shell then replaces this screen with the library.
+ * The first-run welcome: the app name, one line on what Sheliak is, and the four kinds of source it reads —
+ * Plex "Available", the others "Coming next". The way forward is M0's: a choice stores `intro_done` and the shell
+ * replaces this screen with the library. While no source exists the primary action is "Connect a Plex server"
+ * ([onConnectPlex]: the shell then goes on to the Plex setup, over the library) with "Skip for now" beside it;
+ * once one exists (a reinstall that kept its data) it is a plain "Continue" ([onSkip]).
  *
- * No app bar: the column takes the status-bar inset itself, and the skip button, the bottom-most element,
- * takes the navigation-bar inset.
+ * No app bar: the column takes the status-bar inset itself, and the action row, the bottom-most element, takes the
+ * navigation-bar inset.
  */
 @Composable
 fun IntroScreen(
-    onSkip  : () -> Unit,
-    modifier: Modifier = Modifier,
+    viewModel    : IntroViewModel,
+    onSkip       : () -> Unit,
+    onConnectPlex: () -> Unit,
+    modifier     : Modifier = Modifier,
 ) {
     val haptics = LocalHapticFeedback.current
+    val hasSources by viewModel.hasSources.collectAsStateWithLifecycle()
     Scaffold(
         modifier            = modifier,
         containerColor      = MaterialTheme.colorScheme.background,
@@ -109,11 +118,26 @@ fun IntroScreen(
                 Spacer(Modifier.height(12.dp))
                 IntroSources.forEach { source -> IntroSourceCard(source) }
                 Spacer(Modifier.height(12.dp))
-                TextButton(
-                    onClick  = { haptics.confirm(); onSkip() },
-                    modifier = Modifier.align(Alignment.End).navigationBarsPadding(),
+                Row(
+                    modifier              = Modifier.align(Alignment.End).navigationBarsPadding(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment     = Alignment.CenterVertically,
                 ) {
-                    Text(stringResource(R.string.intro_skip))
+                    // Nothing until the sources are known, so the row never swaps its buttons under a finger.
+                    when (hasSources) {
+                        null  -> Unit
+                        false -> {
+                            TextButton(onClick = { haptics.confirm(); onSkip() }) {
+                                Text(stringResource(R.string.intro_skip))
+                            }
+                            Button(onClick = { haptics.confirm(); onConnectPlex() }) {
+                                Text(stringResource(R.string.intro_connect_plex))
+                            }
+                        }
+                        true  -> Button(onClick = { haptics.confirm(); onSkip() }) {
+                            Text(stringResource(R.string.intro_continue))
+                        }
+                    }
                 }
             }
         }
@@ -121,8 +145,9 @@ fun IntroScreen(
 }
 
 /**
- * One source card. Not clickable in M0 — nothing can be connected yet — so it is a plain card whose
- * "Coming next" label says why; TalkBack reads the name, the description and the label as one item.
+ * One source card: a plain card whose label says whether it can be set up now ("Available") or later ("Coming
+ * next"); TalkBack reads the name, the description and the label as one item. The setup itself is the primary
+ * action below the cards.
  */
 @Composable
 private fun IntroSourceCard(source: IntroSource) {
@@ -154,9 +179,9 @@ private fun IntroSourceCard(source: IntroSource) {
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text  = stringResource(R.string.intro_coming_next),
+                    text  = stringResource(if (source.available) R.string.intro_available else R.string.intro_coming_next),
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.tertiary,
+                    color = if (source.available) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
                 )
             }
         }

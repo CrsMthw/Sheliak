@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Search (ui/screens/search). The field's placeholder and clear button stay in strings.xml; the result
+         tabs reuse the library's tab names. -->
+
+    <!-- Under the field while it is blank -->
+    <string name="search_hint">Search your tracks, albums, artists and playlists.</string>
+    <!-- A result tab with nothing for the query. %1$s is the text typed. -->
+    <string name="search_no_results">No results for “%1$s”</string>
+</resources>

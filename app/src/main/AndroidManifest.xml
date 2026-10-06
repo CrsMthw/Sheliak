@@ -49,7 +49,7 @@
             <!--
                 Declares voice "play …" support (Assistant, Android Auto). In Auto the query reaches the session
                 (SheliakMediaLibraryCallback resolves requestMetadata.searchQuery); on the phone Assistant starts
-                this Activity with SearchManager.QUERY, which is not acted on yet (docs/PLAYER.md, Stage 2).
+                this Activity with SearchManager.QUERY, which MainActivity hands to PlayerStateManager.playFromSearch.
             -->
             <intent-filter>
                 <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />

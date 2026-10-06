@@ -43,3 +43,43 @@ fun suiteLayoutFor(width: WindowWidth): SuiteLayout = when (width) {
  * morph (the FAB and the Search screen's bar) ask this, so they can never disagree.
  */
 fun searchMorphEnabled(width: WindowWidth): Boolean = width == WindowWidth.Compact
+
+/**
+ * Whether the library's list-detail tabs (Albums, Artists, Playlists) show the list and the selected item side by
+ * side in two cards: from the medium width class up (600dp), exactly where the suite turns into a rail. Below it
+ * a pick pushes the detail as its own navigation entry.
+ */
+fun listDetailEnabled(width: WindowWidth): Boolean = width != WindowWidth.Compact
+
+/**
+ * Whether [tab] is laid out as two panes at [width]. Tracks never is: it is the single-pane home at every width
+ * (carousels + All tracks).
+ */
+fun libraryTabIsTwoPane(tab: LibraryTab, width: WindowWidth): Boolean =
+    listDetailEnabled(width) && tab != LibraryTab.TRACKS
+
+/** What the suite's own component takes out of the library's area, in px: the bar's height or the rail's width. */
+data class SuiteChromeExtent(val bottomBarPx: Int, val startRailPx: Int) {
+    companion object {
+        val None: SuiteChromeExtent = SuiteChromeExtent(0, 0)
+    }
+}
+
+/**
+ * The bar's or the rail's measured extent for [layout], from the suite's TOTAL size and the size left to its
+ * content (both measured, in px): the bar is the height the content lost, the rail the width it lost — so each
+ * includes the system inset the component covers (the navigation bar under the bar, a side cutout beside the
+ * rail). Only the component [layout] shows is reported; the other is 0. Never negative (a frame where only one
+ * of the two sizes has been measured yet).
+ */
+fun suiteChromeExtent(
+    layout       : SuiteLayout,
+    totalWidth   : Int,
+    totalHeight  : Int,
+    contentWidth : Int,
+    contentHeight: Int,
+): SuiteChromeExtent = when (layout) {
+    SuiteLayout.Bar           -> SuiteChromeExtent(bottomBarPx = (totalHeight - contentHeight).coerceAtLeast(0), startRailPx = 0)
+    SuiteLayout.CollapsedRail,
+    SuiteLayout.ExpandedRail  -> SuiteChromeExtent(bottomBarPx = 0, startRailPx = (totalWidth - contentWidth).coerceAtLeast(0))
+}

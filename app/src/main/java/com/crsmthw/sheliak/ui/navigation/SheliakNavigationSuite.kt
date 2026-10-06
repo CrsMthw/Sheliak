@@ -1,6 +1,7 @@
 package com.crsmthw.sheliak.ui.navigation
 
 import androidx.annotation.StringRes
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
@@ -43,14 +44,20 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffo
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalWindowInfo
 import com.crsmthw.sheliak.ui.components.LargeBarMinPaneHeight
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import com.crsmthw.sheliak.R
@@ -102,19 +109,33 @@ private fun SuiteLayout.toNavigationSuiteType(): NavigationSuiteType = when (thi
  * header, which `WideNavigationRail` pins to the rail's top whatever the arrangement. On compact the search FAB
  * is NOT in the suite: it is composed by the library's content ([SearchFab]), because it is one end of a
  * shared-element morph and must live inside a navigation entry, outside the bar's own layout.
+ *
+ * It also tells the player surface where the suite is ([LocalPlayerSurfaceChrome]): the bar's measured TOTAL
+ * height (the navigation-bar inset it covers included) while the bar shows, the rail's measured width while a rail
+ * shows — the suite's size less its content's ([suiteChromeExtent]) — so the mini bar sits directly above the bar
+ * and never over the rail. Both reset to 0dp when the suite leaves composition (a screen pushed over the library)
+ * and whenever the layout changes, before the new layout measures.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SheliakNavigationSuite(
-    layout      : SuiteLayout,
-    selectedTab : LibraryTab,
-    onSelectTab : (LibraryTab) -> Unit,
-    onOpenSearch: () -> Unit,
-    modifier    : Modifier = Modifier,
-    content     : @Composable () -> Unit,
+    layout       : SuiteLayout,
+    selectedTab  : LibraryTab,
+    onSelectTab  : (LibraryTab) -> Unit,
+    onOpenSearch : () -> Unit,
+    modifier     : Modifier = Modifier,
+    onReselectTab: (LibraryTab) -> Unit = {},
+    content      : @Composable () -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
     val type = layout.toNavigationSuiteType()
+    val chrome = LocalPlayerSurfaceChrome.current
+    val density = LocalDensity.current
+    val publisher = remember(chrome) { SuiteChromePublisher(chrome) }
+    DisposableEffect(publisher, layout) {
+        publisher.layout = layout
+        onDispose { publisher.reset() }
+    }
     NavigationSuiteScaffold(
         navigationItems                   = {
             // The same items feed the compact bar, so the rail-only button is guarded here: on the bar it would
@@ -129,11 +150,9 @@ fun SheliakNavigationSuite(
                 NavigationSuiteItem(
                     selected            = selected,
                     onClick             = {
-                        // Re-selecting the current tab does nothing yet (M1 scrolls its list to the top).
-                        if (!selected) {
-                            haptics.press()
-                            onSelectTab(destination.tab)
-                        }
+                        haptics.press()
+                        // Re-selecting the current tab sends its list back to the top.
+                        if (selected) onReselectTab(destination.tab) else onSelectTab(destination.tab)
                     },
                     icon                = {
                         Icon(
@@ -146,7 +165,7 @@ fun SheliakNavigationSuite(
                 )
             }
         },
-        modifier                          = modifier,
+        modifier                          = modifier.onSizeChanged { publisher.onSuiteSize(it, density) },
         navigationSuiteType               = type,
         // EXACTLY Arrangement.Center: WideNavigationRail tests for that instance and only then centres the items on
         // the rail's full height. The bar ignores the arrangement. No primaryActionContent: the rail's header
@@ -161,9 +180,55 @@ fun SheliakNavigationSuite(
             // the START side beside a rail (a 3-button bar on the END edge is still the content's to clear).
             // Consuming it here is what makes every inset MODIFIER below — the bottom fade, the FAB's
             // `navigationBarsPadding()` — measure only what is still owed, with no knowledge of the suite.
-            Box(Modifier.fillMaxSize().consumeWindowInsets(suiteCoveredInsets(layout))) { content() }
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .onSizeChanged { publisher.onContentSize(it, density) }
+                    .consumeWindowInsets(suiteCoveredInsets(layout)),
+            ) { content() }
         },
     )
+}
+
+/**
+ * Writes the suite's extent into the player surface's [PlayerSurfaceChrome] from the two `onSizeChanged`
+ * callbacks (layout phase): the suite's total size and its content's. Plain fields, not state — only the
+ * callbacks read and write them; what the host reads is the chrome's own state. [reset] zeroes the chrome and
+ * forgets the sizes, so a layout change publishes only what the NEW layout measures.
+ */
+private class SuiteChromePublisher(private val chrome: PlayerSurfaceChrome) {
+    var layout: SuiteLayout? = null
+    private var suite: IntSize? = null
+    private var content: IntSize? = null
+
+    fun onSuiteSize(size: IntSize, density: Density) {
+        suite = size
+        publish(density)
+    }
+
+    fun onContentSize(size: IntSize, density: Density) {
+        content = size
+        publish(density)
+    }
+
+    fun reset() {
+        layout = null
+        suite = null
+        content = null
+        chrome.bottomBar = 0.dp
+        chrome.startRail = 0.dp
+    }
+
+    private fun publish(density: Density) {
+        val current = layout ?: return
+        val total = suite ?: return
+        val inner = content ?: return
+        val extent = suiteChromeExtent(current, total.width, total.height, inner.width, inner.height)
+        with(density) {
+            chrome.bottomBar = extent.bottomBarPx.toDp()
+            chrome.startRail = extent.startRailPx.toDp()
+        }
+    }
 }
 
 /** The system insets the suite's bar or rail already covers for [layout]. */
@@ -240,7 +305,8 @@ private const val SearchBarSharedKey = "search-bar"
 /**
  * The compact search FAB, bottom-end of the library's content `Box` — composed ONCE there, over whichever tab
  * shows, so a tab change never recomposes or re-shadows it — lifted by the player surface's inset
- * ([LocalPlayerSurfaceInset]) so it sits above the mini player. A [MediumFloatingActionButton] because
+ * ([LocalPlayerSurfaceInset]) so it sits above the mini player — the lift glides on the one finite spec when the
+ * bar comes or goes, instead of jumping. A [MediumFloatingActionButton] because
  * the morph's geometry is measured from an 80dp FAB (`util/SearchBarMorph.kt`), in a tertiary tone with the
  * expressive SoftBurst silhouette so it never reads as a play button. Tapping it morphs it into the Search
  * screen's bar ([searchBarSharedBounds]). The suite lives in the same entry, so pushing Search never moves the
@@ -253,6 +319,11 @@ private const val SearchBarSharedKey = "search-bar"
 @Composable
 fun BoxScope.SearchFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val haptics = LocalHapticFeedback.current
+    val playerLift by animateDpAsState(
+        targetValue   = LocalPlayerSurfaceInset.current,
+        animationSpec = screenTransitionSpec(),
+        label         = "searchFabLift",
+    )
     MediumFloatingActionButton(
         onClick        = { haptics.press(); onClick() },
         containerColor = MaterialTheme.colorScheme.tertiaryContainer,
@@ -261,7 +332,7 @@ fun BoxScope.SearchFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
         modifier       = modifier
             .align(Alignment.BottomEnd)
             .navigationBarsPadding()
-            .padding(end = 16.dp, bottom = 16.dp + LocalPlayerSurfaceInset.current)
+            .padding(end = 16.dp, bottom = 16.dp + playerLift)
             .searchBarSharedBounds(),
     ) {
         Icon(
