@@ -10,7 +10,7 @@ import androidx.compose.ui.Modifier
 
 /**
  * A value-driven `Slider` over the `SliderState` overload — the shape every slider in the app uses
- * (seek bars, volume, the accent Hue / Saturation rows): a hoisted `Float` in, `onValueChange` per
+ * (seek bars, volume, the accent Hue row): a hoisted `Float` in, `onValueChange` per
  * drag frame, `onValueChangeFinished` on release (where the value is persisted or the seek issued).
  *
  * Material3 deprecated the value-driven overload in favour of `SliderState`; this wrapper does

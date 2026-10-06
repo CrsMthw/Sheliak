@@ -3,6 +3,7 @@ package com.crsmthw.sheliak.ui.navigation
 import androidx.annotation.StringRes
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.WindowInsets
@@ -45,7 +46,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalWindowInfo
+import com.crsmthw.sheliak.ui.components.LargeBarMinPaneHeight
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
@@ -91,10 +95,13 @@ private fun SuiteLayout.toNavigationSuiteType(): NavigationSuiteType = when (thi
  * it like any other part of the library and a predictive back reveals it whole, and the content beside it —
  * the bar, the tab lists, the compact search FAB — never moves when a screen is pushed.
  *
- * [layout] comes from [suiteLayoutFor]. On the rail widths the search button lives in the rail's header (the
- * scaffold's primary-action slot, see [RailSearchButton]). On compact it does NOT: there the search FAB is
- * composed by the library's content ([SearchFab]), because it is one end of a shared-element morph and must
- * live inside a navigation entry, outside the bar's own layout.
+ * [layout] comes from [suiteLayoutFor]. On the rail widths the search button is the FIRST child of the rail's
+ * items ([RailSearchButton]) and the whole group — search + the four tabs — is centred vertically on the rail
+ * (`navigationItemVerticalArrangement = Arrangement.Center`), within thumb reach on a tablet or an unfolded
+ * phone, the way Gmail's rail does it. It does not use the scaffold's primary-action slot: that is the rail's
+ * header, which `WideNavigationRail` pins to the rail's top whatever the arrangement. On compact the search FAB
+ * is NOT in the suite: it is composed by the library's content ([SearchFab]), because it is one end of a
+ * shared-element morph and must live inside a navigation entry, outside the bar's own layout.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -109,7 +116,14 @@ fun SheliakNavigationSuite(
     val haptics = LocalHapticFeedback.current
     val type = layout.toNavigationSuiteType()
     NavigationSuiteScaffold(
-        navigationItems      = {
+        navigationItems                   = {
+            // The same items feed the compact bar, so the rail-only button is guarded here: on the bar it would
+            // become a fifth bar item.
+            when (layout) {
+                SuiteLayout.CollapsedRail -> RailSearchButton(expanded = false, onClick = onOpenSearch)
+                SuiteLayout.ExpandedRail  -> RailSearchButton(expanded = true, onClick = onOpenSearch)
+                SuiteLayout.Bar           -> Unit
+            }
             SuiteDestinations.forEach { destination ->
                 val selected = destination.tab == selectedTab
                 NavigationSuiteItem(
@@ -132,17 +146,17 @@ fun SheliakNavigationSuite(
                 )
             }
         },
-        modifier             = modifier,
-        navigationSuiteType  = type,
-        primaryActionContent = {
-            when (layout) {
-                SuiteLayout.CollapsedRail -> RailSearchButton(expanded = false, onClick = onOpenSearch)
-                SuiteLayout.ExpandedRail  -> RailSearchButton(expanded = true, onClick = onOpenSearch)
-                // Compact: the library's content hosts the FAB itself (see the KDoc).
-                SuiteLayout.Bar           -> Unit
-            }
-        },
-        content              = {
+        modifier                          = modifier,
+        navigationSuiteType               = type,
+        // EXACTLY Arrangement.Center: WideNavigationRail tests for that instance and only then centres the items on
+        // the rail's full height. The bar ignores the arrangement. No primaryActionContent: the rail's header
+        // stays empty (zero height, so it adds no header gap) and compact has its own FAB (see the KDoc).
+        // Centred only on a pane at least LargeBarMinPaneHeight tall (the same measured 600dp gate the large
+        // bar uses): the search button + four tabs are ~344dp, and on the folded outer screen in landscape
+        // (~390dp usable, 44dp of rail padding) a centred group would overflow equally off both ends and
+        // clip, while a top arrangement there is within reach anyway.
+        navigationItemVerticalArrangement = if (railTallEnoughToCentre()) Arrangement.Center else Arrangement.Top,
+        content                           = {
             // The suite's own component covers a system inset for the content: the bottom one under a bar,
             // the START side beside a rail (a 3-button bar on the END edge is still the content's to clear).
             // Consuming it here is what makes every inset MODIFIER below — the bottom fade, the FAB's
@@ -161,24 +175,36 @@ private fun suiteCoveredInsets(layout: SuiteLayout): WindowInsets = when (layout
 }
 
 /**
- * Start padding of the rail-header search button, so it sits on the rail's own geometry instead of flush with
- * its edge. `WideNavigationRail` places its header at x = 0 with loose constraints, and its items carry the
- * item horizontal padding themselves — material3's `internal` `WNRItemHorizontalPadding`, 20dp in
- * 1.5.0-alpha29 (NOT `WideNavigationRailDefaults.ContentPadding`, whose start is 0dp). Mirroring it:
- * - collapsed rail (96dp): a top-icon item is 20 + 56 + 20dp wide with its icon centred at 48dp, and a 56dp
- *   FAB after 20dp is centred at 48dp too — on the item column;
+ * Start padding of the rail search button, so it sits on the rail's own item geometry instead of flush with its
+ * edge. `WideNavigationRail` places EVERY child of its items at x = 0 (its items layout is not a centring column),
+ * and the destinations carry the item horizontal padding themselves — material3's `internal`
+ * `WNRItemHorizontalPadding`, 20dp in 1.5.0-alpha29. The button mirrors it:
+ * - collapsed rail (96dp): a top-icon item is 20 + 56 + 20dp wide with its icon centred at 48dp, and a 56dp FAB
+ *   after 20dp is centred at 48dp too — on the item column;
  * - expanded rail: the item indicators start at 20dp, and so does the extended FAB.
- * Padding on the button itself, never a filling or centring wrapper: the rail's width is the widest of its
- * header and items, so a header that fills would widen the rail.
+ * Padding, never a filling or centring wrapper: the expanded rail's width follows its widest item, so a button
+ * that fills would widen the rail.
  */
-private val RailHeaderStartPadding = 20.dp
+private val RailItemStartPadding = 20.dp
 
 /**
- * The search button in the rail header: a FAB on the collapsed rail, an extended FAB (icon + label) on the
- * expanded one, in the same tertiary tone as the compact [SearchFab] so search reads as one control at every
- * width, offset by [RailHeaderStartPadding] onto the rail's item column. Its vertical place is the rail's
- * (the header's top, items 40dp below it). Opening Search from here uses the ordinary push transition — no
+ * The gap the rail search button leaves below itself before the first destination, so it reads as the group's
+ * action rather than a fifth tab. The rail adds its own item spacing on top (4dp collapsed, 0dp expanded), so the
+ * layout gap is 20dp on the collapsed rail and 16dp on the expanded one; the first tab's indicator sits a little
+ * lower still, inside its item.
+ */
+private val RailSearchButtonGap = 16.dp
+
+/**
+ * The rail search button, first in the rail's items and centred with them: a FAB on the collapsed rail, an
+ * extended FAB (icon + label) on the expanded one, in the same tertiary tone as the compact [SearchFab] so search
+ * reads as one control at every width, offset by [RailItemStartPadding] onto the rail's item column and
+ * [RailSearchButtonGap] above the first tab. Opening Search from here uses the ordinary push transition — no
  * container morph on rail widths.
+ *
+ * The [Box] around the button is load-bearing: the rail measures every item child with a MINIMUM height (64dp on
+ * the collapsed rail), which would stretch a bare 56dp FAB into a distorted SoftBurst. A `Box` measures its
+ * content with the minimums dropped, so the button keeps its own size whatever the rail imposes.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -186,25 +212,24 @@ private fun RailSearchButton(expanded: Boolean, onClick: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     val label = stringResource(R.string.nav_search)
     val click = { haptics.press(); onClick() }
-    val alignToItems = Modifier.padding(start = RailHeaderStartPadding)
-    if (expanded) {
-        ExtendedFloatingActionButton(
-            onClick        = click,
-            icon           = { Icon(Icons.Filled.Search, contentDescription = null) },
-            text           = { Text(label) },
-            modifier       = alignToItems,
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            contentColor   = MaterialTheme.colorScheme.onTertiaryContainer,
-        )
-    } else {
-        FloatingActionButton(
-            onClick        = click,
-            modifier       = alignToItems,
-            shape          = MaterialShapes.SoftBurst.toShape(),
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            contentColor   = MaterialTheme.colorScheme.onTertiaryContainer,
-        ) {
-            Icon(Icons.Filled.Search, contentDescription = label)
+    Box(Modifier.padding(start = RailItemStartPadding, bottom = RailSearchButtonGap)) {
+        if (expanded) {
+            ExtendedFloatingActionButton(
+                onClick        = click,
+                icon           = { Icon(Icons.Filled.Search, contentDescription = null) },
+                text           = { Text(label) },
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor   = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+        } else {
+            FloatingActionButton(
+                onClick        = click,
+                shape          = MaterialShapes.SoftBurst.toShape(),
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor   = MaterialTheme.colorScheme.onTertiaryContainer,
+            ) {
+                Icon(Icons.Filled.Search, contentDescription = label)
+            }
         }
     }
 }
@@ -272,3 +297,13 @@ fun Modifier.searchBarSharedBounds(): Modifier {
         )
     }
 }
+
+/**
+ * Whether the rail's items group may be centred: the window is at least [LargeBarMinPaneHeight] tall, read the
+ * same way `RootTopBar` reads its gate (measured window height, because the window-size-class height buckets
+ * have no 600dp boundary). Below it — the folded outer screen in landscape — the group keeps the top
+ * arrangement so nothing is clipped off the rail's ends.
+ */
+@Composable
+private fun railTallEnoughToCentre(): Boolean =
+    with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() } >= LargeBarMinPaneHeight

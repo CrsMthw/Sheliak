@@ -82,7 +82,6 @@
     <string name="theme_dynamic_color_desc">Colours from your wallpaper</string>
     <string name="theme_accent">Accent</string>
     <string name="theme_accent_hue">Hue</string>
-    <string name="theme_accent_saturation">Saturation</string>
 
     <!-- Player and queue (placeholders until playback lands) -->
     <string name="player_title">Now playing</string>

@@ -18,58 +18,71 @@ class AccentSeedTest {
         return minOf(d, 360f - d) <= eps
     }
 
-    // ── Seed ↔ slider positions ──────────────────────────────────────────────
+    // ── Seed ↔ Hue slider position ───────────────────────────────────────────
 
     @Test
-    fun `seed round-trips through ARGB back to the same slider positions`() {
-        for (hue in listOf(0f, 37f, 120f, 200f, 271f, 359f)) {
-            for (sat in listOf(ACCENT_SAT_MIN, 0.5f, 0.66f, ACCENT_SAT_MAX)) {
-                val back = accentHueSat(accentSeedColor(hue, sat).toArgb())
-                assertTrue(hueClose(back.hue, hue, 1.5f), "hue $hue → ${back.hue}")
-                assertTrue(close(back.saturation, sat, 0.01f), "sat $sat → ${back.saturation}")
-            }
+    fun `seed round-trips through ARGB back to the same hue`() {
+        for (hue in listOf(0f, 37f, 120f, 200f, 258.8f, 271f, 359f)) {
+            val back = accentHue(accentSeedColor(hue).toArgb())
+            assertTrue(hueClose(back, hue, 1.5f), "hue $hue → $back")
         }
     }
 
     @Test
-    fun `seed is stored at the fixed seed lightness`() {
-        val hsl = accentSeedColor(200f, 0.6f).toHsl()
-        assertTrue(close(hsl.l, ACCENT_SEED_LIGHTNESS, 0.01f), "l=${hsl.l}")
+    fun `seed is stored at the fixed seed saturation and lightness`() {
+        for (hue in listOf(0f, 90f, 200f, 300f)) {
+            val hsl = accentSeedColor(hue).toHsl()
+            assertTrue(close(hsl.s, ACCENT_SEED_SATURATION, 0.02f), "s=${hsl.s} at $hue")
+            assertTrue(close(hsl.l, ACCENT_SEED_LIGHTNESS, 0.01f), "l=${hsl.l} at $hue")
+        }
     }
 
     @Test
-    fun `seed accepts the range edges and clamps out-of-range inputs instead of throwing`() {
+    fun `the fixed saturation and lightness are the default Purple's own`() {
+        val purple = Color(ACCENT_DEFAULT_ARGB).toHsl()
+        assertEquals(purple.s, ACCENT_SEED_SATURATION)
+        assertEquals(purple.l, ACCENT_SEED_LIGHTNESS)
+    }
+
+    @Test
+    fun `a hue-slider seed at Purple's hue is the Purple swatch`() {
+        // The slider and the default swatch must agree: same dot, same scheme.
+        val seed = accentSeedColor(accentHue(ACCENT_DEFAULT_ARGB)).toArgb()
+        for (shift in listOf(16, 8, 0)) {
+            val a = (seed shr shift) and 0xFF
+            val b = (ACCENT_DEFAULT_ARGB shr shift) and 0xFF
+            assertTrue(abs(a - b) <= 1, "channel at $shift: ${a.toString(16)} vs ${b.toString(16)}")
+        }
+    }
+
+    @Test
+    fun `seed accepts the range edges and clamps out-of-range hues instead of throwing`() {
         // Color.hsl validates its arguments; these must not reach it unclamped.
-        accentSeedColor(ACCENT_HUE_MAX, ACCENT_SAT_MAX)
-        accentSeedColor(ACCENT_HUE_MIN, ACCENT_SAT_MIN)
-        val low = accentSeedColor(-10f, 0f).toHsl()
-        val high = accentSeedColor(400f, 1f).toHsl()
-        assertTrue(close(low.s, ACCENT_SAT_MIN, 0.01f), "low s=${low.s}")
-        assertTrue(close(high.s, ACCENT_SAT_MAX, 0.01f), "high s=${high.s}")
+        accentSeedColor(ACCENT_HUE_MAX)
+        accentSeedColor(ACCENT_HUE_MIN)
+        assertEquals(accentSeedColor(ACCENT_HUE_MIN).toArgb(), accentSeedColor(-10f).toArgb())
+        assertEquals(accentSeedColor(ACCENT_HUE_MAX).toArgb(), accentSeedColor(400f).toArgb())
     }
 
     @Test
-    fun `a grey stored colour maps to hue 0 and the minimum saturation`() {
-        val hs = accentHueSat(Color(0xFF808080).toArgb())
-        assertEquals(0f, hs.hue)
-        assertEquals(ACCENT_SAT_MIN, hs.saturation)
+    fun `a grey stored colour maps to hue 0`() {
+        assertEquals(0f, accentHue(Color(0xFF808080).toArgb()))
     }
 
     @Test
-    fun `presets outside the saturation window come back clamped`() {
-        val blueGrey = accentHueSat(0xFF90A4AE.toInt())   // s ≈ 0.16
-        val orange = accentHueSat(0xFFFB8C00.toInt())     // s = 1.0
-        assertEquals(ACCENT_SAT_MIN, blueGrey.saturation)
-        assertEquals(ACCENT_SAT_MAX, orange.saturation)
-        assertTrue(orange.hue in ACCENT_HUE_MIN..ACCENT_HUE_MAX && blueGrey.hue in ACCENT_HUE_MIN..ACCENT_HUE_MAX)
+    fun `every preset's hue is on the slider's track`() {
+        for (preset in AccentPresets) {
+            val hue = accentHue(preset.argb)
+            assertTrue(hue in ACCENT_HUE_MIN..ACCENT_HUE_MAX, "${preset.argb.toString(16)} → $hue")
+        }
     }
 
     @Test
     fun `a hue released at the right end is stored as hue 0`() {
         // Why the echo must never re-seed the Hue slider: 360 and 0 are one colour, and toHsl reads 0.
-        val argb = accentSeedColor(360f, 0.6f).toArgb()
-        assertEquals(argb, accentSeedColor(0f, 0.6f).toArgb())
-        assertTrue(accentHueSat(argb).hue < 1f)
+        val argb = accentSeedColor(360f).toArgb()
+        assertEquals(argb, accentSeedColor(0f).toArgb())
+        assertTrue(accentHue(argb) < 1f)
     }
 
     // ── Presets ──────────────────────────────────────────────────────────────

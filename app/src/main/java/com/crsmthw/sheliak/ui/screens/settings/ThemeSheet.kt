@@ -49,25 +49,24 @@ import com.crsmthw.sheliak.ui.components.SwatchCircle
 import com.crsmthw.sheliak.ui.components.sheetTopGap
 import com.crsmthw.sheliak.ui.theme.ACCENT_HUE_MAX
 import com.crsmthw.sheliak.ui.theme.ACCENT_HUE_MIN
-import com.crsmthw.sheliak.ui.theme.ACCENT_SAT_MAX
-import com.crsmthw.sheliak.ui.theme.ACCENT_SAT_MIN
 import com.crsmthw.sheliak.ui.theme.AccentOwnWrites
 import com.crsmthw.sheliak.ui.theme.AccentPresets
 import com.crsmthw.sheliak.ui.theme.ThemeMode
-import com.crsmthw.sheliak.ui.theme.accentHueSat
+import com.crsmthw.sheliak.ui.theme.accentHue
 import com.crsmthw.sheliak.ui.theme.accentSeedColor
 import com.crsmthw.sheliak.util.tick
 
 /**
  * Every display-theme control in one sheet: the Mode picker (System / Light / Dark), the AMOLED and Material
  * You switches, and — while Material You is off — the **Accent** picker the whole colour scheme is generated
- * from: ten preset swatches, then Hue and Saturation sliders.
+ * from: ten preset swatches, then ONE Hue slider (the seed's saturation and lightness are fixed — Tonal Spot
+ * takes only the seed's hue).
  *
- * The sliders keep their in-drag values here so the colour dot follows the finger, and persist on release
- * only (one write per drag, not one per frame). They are re-seeded from the stored accent ONLY on an outside
- * change — never by this sheet's own write coming back ([AccentOwnWrites]): a Hue released at exactly 360
- * reads back as 0, and re-seeding from the echo would snap the thumb across the track. A swatch tap re-seeds
- * the sliders itself, at the tap.
+ * The slider keeps its in-drag value here so the colour dot follows the finger, and persists on release only
+ * (one write per drag, not one per frame). It is re-seeded from the stored accent ONLY on an outside change —
+ * never by this sheet's own write coming back ([AccentOwnWrites]): a Hue released at exactly 360 reads back as
+ * 0, and re-seeding from the echo would snap the thumb across the track. A swatch tap re-seeds the slider
+ * itself, at the tap.
  *
  * The slider state is hoisted to the sheet, outside the [RevealSection], because a hidden section leaves
  * composition: switching Material You on and off again must not lose an unsaved drag position or the queue of
@@ -88,29 +87,24 @@ internal fun ThemeSheet(
     val haptics = LocalHapticFeedback.current
 
     val ownWrites = remember { AccentOwnWrites() }
-    var hue by remember { mutableFloatStateOf(accentHueSat(accentColor).hue) }
-    var sat by remember { mutableFloatStateOf(accentHueSat(accentColor).saturation) }
-    // Until a slider moves, the dot shows the STORED colour exactly (a preset's own ARGB, not its re-derived
-    // hsl(h, s, 0.56)); after a drag it shows the sliders.
+    var hue by remember { mutableFloatStateOf(accentHue(accentColor)) }
+    // Until the slider moves, the dot shows the STORED colour exactly (a preset's own ARGB, not its hue re-seeded
+    // at the fixed saturation and lightness); after a drag it shows the slider.
     var dragged by remember { mutableStateOf(false) }
     LaunchedEffect(accentColor) {
         if (!ownWrites.isEcho(accentColor)) {
-            val stored = accentHueSat(accentColor)
-            hue     = stored.hue
-            sat     = stored.saturation
+            hue     = accentHue(accentColor)
             dragged = false
         }
     }
-    val dotColor = if (dragged) accentSeedColor(hue, sat) else Color(accentColor)
-    val persistSliders = {
-        val argb = accentSeedColor(hue, sat).toArgb()
+    val dotColor = if (dragged) accentSeedColor(hue) else Color(accentColor)
+    val persistHue = {
+        val argb = accentSeedColor(hue).toArgb()
         ownWrites.record(argb)
         onAccent(argb)
     }
     val pickPreset = { argb: Int ->
-        val picked = accentHueSat(argb)
-        hue     = picked.hue
-        sat     = picked.saturation
+        hue     = accentHue(argb)
         dragged = false
         ownWrites.record(argb)
         onAccent(argb)
@@ -204,16 +198,7 @@ internal fun ThemeSheet(
                             value                 = hue,
                             valueRange            = ACCENT_HUE_MIN..ACCENT_HUE_MAX,
                             onValueChange         = { hue = it; dragged = true },
-                            onValueChangeFinished = persistSliders,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        AccentSliderRow(
-                            label                 = stringResource(R.string.theme_accent_saturation),
-                            dot                   = dotColor,
-                            value                 = sat,
-                            valueRange            = ACCENT_SAT_MIN..ACCENT_SAT_MAX,
-                            onValueChange         = { sat = it; dragged = true },
-                            onValueChangeFinished = persistSliders,
+                            onValueChangeFinished = persistHue,
                         )
                     }
                 }

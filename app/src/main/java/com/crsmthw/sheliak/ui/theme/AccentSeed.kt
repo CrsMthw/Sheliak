@@ -8,9 +8,9 @@ import kotlin.math.max
 import kotlin.math.min
 
 /*
- * The accent picker's model (Settings → Theme, shown while Material You is off): ten preset swatches plus Hue and
- * Saturation sliders, all producing ONE seed colour persisted as `accent_color` (ARGB) and turned into the full
- * scheme by SeedColorScheme. Pure Kotlin (no android.*), unit-tested in AccentSeedTest.
+ * The accent picker's model (Settings → Theme, shown while Material You is off): ten preset swatches plus ONE Hue
+ * slider, both producing ONE seed colour persisted as `accent_color` (ARGB) and turned into the full scheme by
+ * SeedColorScheme. Pure Kotlin (no android.*), unit-tested in AccentSeedTest.
  */
 
 /** Purple, the launcher icon's background: switching Material You off lands on the icon's own colour. */
@@ -21,21 +21,13 @@ const val ACCENT_HUE_MIN: Float = 0f
 const val ACCENT_HUE_MAX: Float = 360f
 
 /**
- * The Saturation slider's window. A stored colour outside it (the Orange and Blue grey presets) is clamped into
- * it when it seeds the slider, so the thumb always sits on the track.
- *
- * Known limit: Tonal Spot takes only the seed's HUE — it fixes each palette's chroma itself — so saturation
- * shows on the swatch dot but barely moves the generated scheme.
+ * The saturation and lightness every hue-slider seed is stored at — the default Purple's own, so a slider seed at
+ * Purple's hue IS the Purple swatch (same dot, same scheme). Neither is a user control: Material's Tonal Spot
+ * scheme takes only the seed's hue and fixes each palette's chroma and every role's tone itself, so a saturation
+ * or lightness slider would move the swatch dot without changing the app.
  */
-const val ACCENT_SAT_MIN: Float = 0.35f
-const val ACCENT_SAT_MAX: Float = 0.80f
-
-/**
- * The lightness every slider-made seed is stored at. It is not a user control: the tonal scheme fixes every
- * role's tone itself, so a lightness slider would move the swatch dot without changing the app. 0.56 keeps the
- * dot a mid-tone that reads on both light and dark sheets.
- */
-const val ACCENT_SEED_LIGHTNESS: Float = 0.56f
+val ACCENT_SEED_SATURATION: Float = Color(ACCENT_DEFAULT_ARGB).toHsl().s
+val ACCENT_SEED_LIGHTNESS: Float = Color(ACCENT_DEFAULT_ARGB).toHsl().l
 
 /** One preset swatch: its ARGB and the colour name TalkBack reads. */
 data class AccentPreset(val argb: Int, @param:StringRes val nameRes: Int)
@@ -54,36 +46,27 @@ val AccentPresets: List<AccentPreset> = listOf(
     AccentPreset(0xFF90A4AE.toInt(),  R.string.theme_accent_blue_grey),
 )
 
-/** The two slider positions a stored accent maps to. */
-data class AccentHueSat(val hue: Float, val saturation: Float)
-
-/** Slider positions → the seed. Inputs are clamped first, because `Color.hsl` throws outside its ranges. */
-fun accentSeedColor(hue: Float, sat: Float): Color = Color.hsl(
+/** Hue slider position → the seed. The hue is clamped first, because `Color.hsl` throws outside its range. */
+fun accentSeedColor(hue: Float): Color = Color.hsl(
     hue        = hue.coerceIn(ACCENT_HUE_MIN, ACCENT_HUE_MAX),
-    saturation = sat.coerceIn(ACCENT_SAT_MIN, ACCENT_SAT_MAX),
+    saturation = ACCENT_SEED_SATURATION,
     lightness  = ACCENT_SEED_LIGHTNESS,
 )
 
-/** A stored accent (ARGB) → the slider positions, saturation clamped into the slider's window. */
-fun accentHueSat(argb: Int): AccentHueSat {
-    val hsl = Color(argb).toHsl()
-    return AccentHueSat(
-        hue        = hsl.h.coerceIn(ACCENT_HUE_MIN, ACCENT_HUE_MAX),
-        saturation = hsl.s.coerceIn(ACCENT_SAT_MIN, ACCENT_SAT_MAX),
-    )
-}
+/** A stored accent (ARGB) → the Hue slider position; a grey (no hue) reads 0. */
+fun accentHue(argb: Int): Float = Color(argb).toHsl().h.coerceIn(ACCENT_HUE_MIN, ACCENT_HUE_MAX)
 
 /**
  * The accent values the picker has itself sent to DataStore and not yet seen come back.
  *
- * The sliders must NOT be re-seeded from the picker's own write landing: the stored ARGB reads back through
+ * The Hue slider must NOT be re-seeded from the picker's own write landing: the stored ARGB reads back through
  * [toHsl], whose hue is in [0, 360) — a Hue released at the right end (exactly 360) would come back as 0 and
  * snap the thumb across the track — and a drag begun before the echo lands would be reset under the finger.
- * So every write (a slider release AND a swatch tap, which re-seeds the sliders itself at the tap) is
+ * So every write (a slider release AND a swatch tap, which re-seeds the slider itself at the tap) is
  * [record]ed, and an emission counts as an outside change only when [isEcho] says it is not one of ours.
  *
- * A queue rather than a single "last written" value: two quick releases (Hue, then Saturation) send A then B,
- * and if A's emission arrives on its own it must still count as ours.
+ * A queue rather than a single "last written" value: two quick writes (a Hue release, then a swatch tap) send A
+ * then B, and if A's emission arrives on its own it must still count as ours.
  *
  * Not snapshot state — it is read and written only from callbacks and effects.
  */

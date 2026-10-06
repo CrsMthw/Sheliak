@@ -244,9 +244,9 @@ fun SwatchCircle(
 }
 
 /**
- * A labelled slider for one accent component ("Hue", "Saturation"): the [label] above, a dot in the
- * current [dot] colour at the start, then a [ValueSlider]. The dot shows the colour the sliders are
- * producing, so the user sees the result without leaving the sheet.
+ * A labelled accent slider (the Theme sheet's "Hue"): the [label] above, a dot in the current [dot]
+ * colour at the start, then a [ValueSlider]. The dot shows the colour the slider is producing, so the
+ * user sees the result without leaving the sheet.
  *
  * Drags report through [onValueChange] every frame (keep the value in local state); persist in
  * [onValueChangeFinished], once per release, so a drag is one write rather than one per frame. The
