@@ -31,3 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   connected single-choice row, the value slider, haptics vocabulary, the one finite motion spec, the search-bar
   outline morph, the bottom fade scrim, the placeholder album art, and the settings row helpers.
 - 78 JVM unit tests (theme generation, accent helpers, back-stack rules, suite layout, formatting).
+
+### Changed
+- Navigation shell v2 (after the first device pass): the navigation suite lives inside the Library destination, so
+  pushing Search or Settings animates the whole library and a predictive back reveals it with its bar or rail in
+  place; one fixed title bar whose text crossfades between tabs; Material shared-axis transitions for push and pop
+  and fade-through for tab changes; every library tab shows a count subtitle so the bar is one height.
+- Rail: the Search button is centred with the destinations as one group (top-aligned on short screens so nothing
+  clips), aligned to the icon column instead of the screen edge.
+- Accent picker: the Saturation slider was removed — Material's colour scheme uses only the seed's hue — leaving
+  the preset swatches and a Hue slider.
+- The bottom fade scrim and list spacing read system insets through modifiers, so they no longer over-count under
+  the navigation bar.
+- 82 JVM unit tests.
