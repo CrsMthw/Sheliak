@@ -11,6 +11,7 @@ import com.crsmthw.sheliak.data.provider.ProviderDeps
 import com.crsmthw.sheliak.data.provider.ProviderFactory
 import com.crsmthw.sheliak.data.provider.ProviderRegistry
 import com.crsmthw.sheliak.data.provider.RoomIndexReader
+import com.crsmthw.sheliak.data.provider.plex.PlexProviderFactory
 import com.crsmthw.sheliak.data.repository.HistoryRepository
 import com.crsmthw.sheliak.data.repository.LibraryRepository
 import com.crsmthw.sheliak.data.repository.PlaylistRepository
@@ -19,6 +20,9 @@ import com.crsmthw.sheliak.data.repository.SourcesRepository
 import com.crsmthw.sheliak.data.sync.SyncRunner
 import com.crsmthw.sheliak.data.sync.SyncScheduler
 import com.crsmthw.sheliak.data.sync.SyncStateStore
+import com.crsmthw.sheliak.player.PlaybackSignals
+import com.crsmthw.sheliak.player.PlayerStateManager
+import com.crsmthw.sheliak.service.QueueStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -68,7 +72,7 @@ class AppContainer(context: Context) {
      * One factory per provider type. Lane L2 adds `PlexProviderFactory()` here (or calls
      * `providerRegistry.register` once) — the registry then builds a provider for every `plex` row.
      */
-    private val providerFactories: List<ProviderFactory> = emptyList()
+    private val providerFactories: List<ProviderFactory> = listOf(PlexProviderFactory())
 
     val providerRegistry = ProviderRegistry(
         providerDao = database.providerDao(),
@@ -137,6 +141,24 @@ class AppContainer(context: Context) {
                 .build()
         }
         .build()
+
+    // ── Playback ─────────────────────────────────────────────────────────────
+    /** What only the service's ExoPlayer knows (decoder format, audio session id), for the UI side. */
+    val playbackSignals = PlaybackSignals()
+
+    /** The persisted queue; `PlaybackService` attaches its player to it and resumes from it. */
+    val queueStore = QueueStore(database.queueDao(), appScope)
+
+    /**
+     * The app's view of the player and its commands (docs/PLAYER.md). Connects to `PlaybackService` only while
+     * something watches it, so building it here binds nothing.
+     */
+    val playerStateManager = PlayerStateManager(
+        context  = appContext,
+        library  = libraryRepository,
+        signals  = playbackSignals,
+        appScope = appScope,
+    )
 
     // Last: everything above is initialised before the graph is published and its startup work begins.
     init {

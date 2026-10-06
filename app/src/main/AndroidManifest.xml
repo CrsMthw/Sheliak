@@ -1,6 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Streaming from servers; the network state tells the play reporter whether the network is metered. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Android 17: connections to a server on the local network need this runtime permission. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <!--
+        The playback service runs in the foreground while playing, with Media3's media notification. Media
+        session notifications are exempt from the runtime POST_NOTIFICATIONS grant; it is declared as asked.
+        WAKE_LOCK comes from media3-exoplayer's manifest.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!--
         allowBackup="false" turns off cloud backup; on API 31+ device-to-device transfer ignores that flag, so
         data_extraction_rules excludes everything there as well. The library index is rebuilt from its sources
@@ -32,7 +46,47 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!--
+                Declares voice "play …" support (Assistant, Android Auto). In Auto the query reaches the session
+                (SheliakMediaLibraryCallback resolves requestMetadata.searchQuery); on the phone Assistant starts
+                this Activity with SearchManager.QUERY, which is not acted on yet (docs/PLAYER.md, Stage 2).
+            -->
+            <intent-filter>
+                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
+
+        <!--
+            THE player (service/PlaybackService): Media3's MediaLibraryService, in the foreground with the one
+            media notification while playing. Exported because Android Auto, the system media controls and
+            Bluetooth bind to it through the two actions below. Lint's ExportedService warning on this element is
+            expected and accepted (docs/DESIGN.md §8.1 4a′, docs/PLAYER.md); there is no permission a car or a
+            system controller could hold.
+        -->
+        <service
+            android:name=".service.PlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaLibraryService" />
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+
+        <!-- A headset or Bluetooth "play" after the process died: Media3 starts the service and resumes the queue. -->
+        <receiver
+            android:name="androidx.media3.session.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Android Auto: Sheliak is a media app. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
 
     </application>
 </manifest>

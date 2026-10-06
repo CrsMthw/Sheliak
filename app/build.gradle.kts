@@ -86,7 +86,7 @@ androidComponents {
     }
 }
 
-// Only what the current milestone uses. Media3, Retrofit and Glance wait in the catalog until their milestone.
+// Only what the current milestone uses. Glance (the widget) waits in the catalog until its milestone.
 // WorkManager (M1, the index sync) initialises itself through androidx.startup; its own consumer R8 rules keep
 // the workers' constructors, and Glance's extra keep rules land with the widget (docs/BUILD.md).
 dependencies {
@@ -130,8 +130,16 @@ dependencies {
     // Background work: the per-source index sync
     implementation(libs.androidx.work.runtime.ktx)
 
+    // Playback: the one ExoPlayer, its session (notification, Android Auto) and its OkHttp data source
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.session)
+    implementation(libs.androidx.media3.common.ktx)
+    implementation(libs.androidx.media3.datasource.okhttp)
+
     // HTTP: the app's one base client, shared by providers and the player
     implementation(libs.okhttp)
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.converter.kotlinx)
 
     // Images and shapes
     implementation(libs.coil.compose)

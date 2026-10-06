@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Playback service (service/, player/): the media notification and the Android Auto browse tree. -->
+
+    <!-- Name of the media notification's channel, shown in the system's notification settings -->
+    <string name="playback_channel_name">Playback</string>
+    <!-- Android Auto: the browse tab listing the tracks played most recently -->
+    <string name="playback_recently_played">Recently played</string>
+    <!-- Android Auto: the title of the Liked Songs playlist -->
+    <string name="playback_liked_songs">Liked Songs</string>
+</resources>
