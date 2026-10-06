@@ -86,9 +86,9 @@ androidComponents {
     }
 }
 
-// Only what the current milestone uses. Media3, Retrofit, Glance and WorkManager wait in the catalog until their
-// milestone: WorkManager initialises itself through androidx.startup the moment it is on the classpath, and its
-// R8 keep rules land together with the widget (docs/BUILD.md).
+// Only what the current milestone uses. Media3, Retrofit and Glance wait in the catalog until their milestone.
+// WorkManager (M1, the index sync) initialises itself through androidx.startup; its own consumer R8 rules keep
+// the workers' constructors, and Glance's extra keep rules land with the widget (docs/BUILD.md).
 dependencies {
     // Core
     implementation(libs.androidx.core.ktx)
@@ -121,11 +121,17 @@ dependencies {
     // Declared explicitly so the predictive-back transition state is on the compile classpath.
     implementation(libs.androidx.navigationevent.compose)
 
-    // Persistence (Room is wired now so M1 only adds entities)
+    // Persistence: the merged index (Room) and settings (DataStore)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.datastore.preferences)
+
+    // Background work: the per-source index sync
+    implementation(libs.androidx.work.runtime.ktx)
+
+    // HTTP: the app's one base client, shared by providers and the player
+    implementation(libs.okhttp)
 
     // Images and shapes
     implementation(libs.coil.compose)

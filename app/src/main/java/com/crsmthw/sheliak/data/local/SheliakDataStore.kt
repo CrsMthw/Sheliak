@@ -63,6 +63,12 @@ class SheliakDataStore(private val context: Context) {
     /** False until the user finishes or skips Intro; decides the start destination. */
     val introDone: Flow<Boolean> = read { it[Keys.INTRO_DONE] ?: false }
 
+    /** Library lists show one row per normalised album / artist / track across sources (docs/INDEX.md). */
+    val mergeDuplicates: Flow<Boolean> = read { it[Keys.MERGE_DUPLICATES] ?: false }
+
+    /** The bit rate a lossy transcode is requested at, in kbps. */
+    val transcodeBitrateKbps: Flow<Int> = read { it[Keys.TRANSCODE_BITRATE_KBPS] ?: TRANSCODE_BITRATE_DEFAULT_KBPS }
+
     // ── Writes ──────────────────────────────────────────────────────────────
 
     suspend fun setThemeMode(mode: ThemeMode) {
@@ -90,15 +96,29 @@ class SheliakDataStore(private val context: Context) {
         context.settingsStore.edit { it[Keys.INTRO_DONE] = done }
     }
 
+    suspend fun setMergeDuplicates(enabled: Boolean) {
+        context.settingsStore.edit { it[Keys.MERGE_DUPLICATES] = enabled }
+    }
+
+    suspend fun setTranscodeBitrateKbps(kbps: Int) {
+        context.settingsStore.edit { it[Keys.TRANSCODE_BITRATE_KBPS] = kbps }
+    }
+
     // ── Keys ────────────────────────────────────────────────────────────────
 
     /** The on-disk names. Never rename one: a renamed key silently resets that setting for every user. */
     private object Keys {
-        val THEME_MODE      = stringPreferencesKey("theme_mode")
-        val AMOLED_BLACK    = booleanPreferencesKey("amoled_black")
-        val DYNAMIC_COLOR   = booleanPreferencesKey("dynamic_color")
-        val ACCENT_COLOR    = intPreferencesKey("accent_color")
-        val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
-        val INTRO_DONE      = booleanPreferencesKey("intro_done")
+        val THEME_MODE             = stringPreferencesKey("theme_mode")
+        val AMOLED_BLACK           = booleanPreferencesKey("amoled_black")
+        val DYNAMIC_COLOR          = booleanPreferencesKey("dynamic_color")
+        val ACCENT_COLOR           = intPreferencesKey("accent_color")
+        val HAPTICS_ENABLED        = booleanPreferencesKey("haptics_enabled")
+        val INTRO_DONE             = booleanPreferencesKey("intro_done")
+        val MERGE_DUPLICATES       = booleanPreferencesKey("merge_duplicates")
+        val TRANSCODE_BITRATE_KBPS = intPreferencesKey("transcode_bitrate_kbps")
+    }
+
+    companion object {
+        const val TRANSCODE_BITRATE_DEFAULT_KBPS: Int = 320
     }
 }

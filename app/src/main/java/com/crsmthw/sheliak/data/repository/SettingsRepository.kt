@@ -10,17 +10,21 @@ import kotlinx.coroutines.flow.Flow
  */
 class SettingsRepository(private val dataStore: SheliakDataStore) {
 
-    val themeMode     : Flow<ThemeMode> = dataStore.themeMode
-    val amoledBlack   : Flow<Boolean>   = dataStore.amoledBlack
-    val dynamicColor  : Flow<Boolean>   = dataStore.dynamicColor
-    val accentColor   : Flow<Int>       = dataStore.accentColor
-    val hapticsEnabled: Flow<Boolean>   = dataStore.hapticsEnabled
-    val introDone     : Flow<Boolean>   = dataStore.introDone
+    val themeMode           : Flow<ThemeMode> = dataStore.themeMode
+    val amoledBlack         : Flow<Boolean>   = dataStore.amoledBlack
+    val dynamicColor        : Flow<Boolean>   = dataStore.dynamicColor
+    val accentColor         : Flow<Int>       = dataStore.accentColor
+    val hapticsEnabled      : Flow<Boolean>   = dataStore.hapticsEnabled
+    val introDone           : Flow<Boolean>   = dataStore.introDone
+    val mergeDuplicates     : Flow<Boolean>   = dataStore.mergeDuplicates
+    val transcodeBitrateKbps: Flow<Int>       = dataStore.transcodeBitrateKbps
 
-    suspend fun setThemeMode     (mode   : ThemeMode) = dataStore.setThemeMode(mode)
-    suspend fun setAmoledBlack   (enabled: Boolean)   = dataStore.setAmoledBlack(enabled)
-    suspend fun setDynamicColor  (enabled: Boolean)   = dataStore.setDynamicColor(enabled)
-    suspend fun setAccentColor   (argb   : Int)       = dataStore.setAccentColor(argb)
-    suspend fun setHapticsEnabled(enabled: Boolean)   = dataStore.setHapticsEnabled(enabled)
-    suspend fun setIntroDone     (done   : Boolean)   = dataStore.setIntroDone(done)
+    suspend fun setThemeMode(mode: ThemeMode)        = dataStore.setThemeMode(mode)
+    suspend fun setAmoledBlack(enabled: Boolean)     = dataStore.setAmoledBlack(enabled)
+    suspend fun setDynamicColor(enabled: Boolean)    = dataStore.setDynamicColor(enabled)
+    suspend fun setAccentColor(argb: Int)            = dataStore.setAccentColor(argb)
+    suspend fun setHapticsEnabled(enabled: Boolean)  = dataStore.setHapticsEnabled(enabled)
+    suspend fun setIntroDone(done: Boolean)          = dataStore.setIntroDone(done)
+    suspend fun setMergeDuplicates(enabled: Boolean) = dataStore.setMergeDuplicates(enabled)
+    suspend fun setTranscodeBitrateKbps(kbps: Int)   = dataStore.setTranscodeBitrateKbps(kbps)
 }
