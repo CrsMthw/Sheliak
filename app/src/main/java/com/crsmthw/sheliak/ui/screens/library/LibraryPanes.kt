@@ -20,7 +20,8 @@ import com.crsmthw.sheliak.ui.screens.library.detail.PlaylistDetailState
  * The right pane of the two-pane Albums / Artists / Playlists tabs: the same detail bodies the pushed entries
  * draw, in the pane frame (under the library bar, which their scroll collapses through [barScroll]), on the
  * card's `surface`. Each collects its item's flow with the lifecycle for as long as the pane shows it, and starts
- * at its own top: a new pick is a new pane.
+ * at its own top: a new pick is a new pane with a new list state, and the frame emits nothing until the item has
+ * loaded (DetailFrame, "Every detail opens at its top").
  */
 
 @Composable
@@ -54,13 +55,17 @@ internal fun ArtistDetailPane(
 ) {
     val state by remember(artistKey) { viewModel.artistDetail(artistKey) }
         .collectAsStateWithLifecycle(ArtistDetailState.Loading)
+    val currentTrack by rememberCurrentTrackKey(viewModel.playerState)
     ArtistDetailContent(
-        artistKey   = artistKey,
-        state       = state,
-        mode        = remember(barScroll) { DetailMode.Pane(barScroll) },
-        paneColor   = MaterialTheme.colorScheme.surface,
-        listState   = rememberLazyListState(),
-        onOpenAlbum = navigation.onOpenAlbum,
+        artistKey    = artistKey,
+        state        = state,
+        mode         = remember(barScroll) { DetailMode.Pane(barScroll) },
+        paneColor    = MaterialTheme.colorScheme.surface,
+        listState    = rememberLazyListState(),
+        player       = viewModel.player,
+        currentTrack = currentTrack,
+        menuActions  = rememberTrackMenuActions(viewModel.player, onGoToAlbum = navigation.onOpenAlbum, onGoToArtist = null),
+        onOpenAlbum  = navigation.onOpenAlbum,
     )
 }
 

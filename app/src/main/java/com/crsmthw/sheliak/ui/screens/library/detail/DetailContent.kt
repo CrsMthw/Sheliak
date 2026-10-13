@@ -2,6 +2,7 @@ package com.crsmthw.sheliak.ui.screens.library.detail
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -11,10 +12,13 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.carousel.HorizontalUncontainedCarousel
+import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
@@ -51,9 +55,10 @@ import com.crsmthw.sheliak.ui.components.TrackMenuActions
 import com.crsmthw.sheliak.ui.components.TrackRowWithMenu
 import com.crsmthw.sheliak.ui.components.artSizePx
 import com.crsmthw.sheliak.ui.components.rememberHeroTitleHandoff
-import com.crsmthw.sheliak.ui.navigation.LocalPlayerSurfaceInset
-import com.crsmthw.sheliak.ui.screens.library.AlbumListCard
 import com.crsmthw.sheliak.ui.screens.library.AlbumRow
+import com.crsmthw.sheliak.ui.screens.library.ArtistAlbumItem
+import com.crsmthw.sheliak.ui.screens.library.ArtistAlbumItemWidth
+import com.crsmthw.sheliak.ui.screens.library.SectionLabel
 import com.crsmthw.sheliak.ui.screens.library.albumRowKey
 import com.crsmthw.sheliak.ui.screens.library.libraryArtKey
 import com.crsmthw.sheliak.ui.screens.library.libraryArtSharedBounds
@@ -99,6 +104,14 @@ private const val BOTTOM_KEY = "detail-bottom-room"
  * composed LAST so it draws and hit-tests above the rows, with [DetailTopBarFade] under it. In a pane: the list
  * hangs the library bar's connection ([DetailMode.Pane.barScroll]) and starts [BarContentGap] under the pane's top
  * edge with a [TopBarFade]. Both end with the bottom room for the fade and the player surface.
+ *
+ * ### Every detail opens at its top ([loaded])
+ *
+ * The bottom room is emitted only once the detail has [loaded]. A lazy list keeps its scroll anchored to the KEY
+ * of its first visible item; while the state loads, the bottom room used to be the list's ONLY item, so when the
+ * hero and the rows arrived in front of it the list held on to it — and every album, artist or playlist long
+ * enough to scroll opened at its BOTTOM (M1 fix round 1, item 24; pushed and in the two-pane right pane alike,
+ * each with a fresh list state). With nothing in the list until the first read, the hero lands at index 0.
  */
 @Composable
 internal fun DetailFrame(
@@ -106,10 +119,10 @@ internal fun DetailFrame(
     barTitle : String,
     paneColor: Color,
     listState: LazyListState,
+    loaded   : Boolean,
     modifier : Modifier = Modifier,
     content  : LazyListScope.(handoff: HeroTitleHandoff?) -> Unit,
 ) {
-    val bottomRoom = LocalPlayerSurfaceInset.current
     when (mode) {
         is DetailMode.Screen -> {
             val haptics = LocalHapticFeedback.current
@@ -122,7 +135,7 @@ internal fun DetailFrame(
             ) {
                 LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                     content(handoff)
-                    item(key = BOTTOM_KEY, contentType = BOTTOM_KEY) { BottomFadeSpacer(extra = bottomRoom) }
+                    if (loaded) item(key = BOTTOM_KEY, contentType = BOTTOM_KEY) { BottomFadeSpacer() }
                 }
                 DetailTopBarFade(paneColor = paneColor, modifier = Modifier.align(Alignment.TopCenter))
                 BottomFadeScrim(color = paneColor)
@@ -151,7 +164,7 @@ internal fun DetailFrame(
                     modifier = Modifier.fillMaxSize().nestedScroll(mode.barScroll),
                 ) {
                     content(null)
-                    item(key = BOTTOM_KEY, contentType = BOTTOM_KEY) { BottomFadeSpacer(extra = bottomRoom) }
+                    if (loaded) item(key = BOTTOM_KEY, contentType = BOTTOM_KEY) { BottomFadeSpacer() }
                 }
                 TopBarFade(paneColor = paneColor, modifier = Modifier.align(Alignment.TopCenter))
                 BottomFadeScrim(color = paneColor)
@@ -232,6 +245,7 @@ internal fun AlbumDetailContent(
         barTitle  = album?.title.orEmpty(),
         paneColor = paneColor,
         listState = listState,
+        loaded    = !state.loading,
         modifier  = modifier,
     ) { handoff ->
         when {
@@ -288,30 +302,52 @@ private fun albumMeta(album: Album, tracks: List<Track>): String {
 
 // ── Artist ──────────────────────────────────────────────────────────────────
 
+/** Lazy-list keys of the artist page's own items. */
+private const val ARTIST_ALBUMS_HEADER_KEY = "artist-albums-header"
+private const val ARTIST_ALBUMS_ROW_KEY = "artist-albums-row"
+private const val ARTIST_TRACKS_HEADER_KEY = "artist-tracks-header"
+
 /**
- * An artist: the hero (art, name, "N albums" — no Play / Shuffle, as in Lyra), then the albums newest first; an
- * album opens its own detail screen (pushed at every width, with the shared art on a pushed artist screen).
+ * An artist: the hero (art, name, "N albums · M tracks", Shuffle / Play over the artist's tracks — Lyra lacked
+ * these only because its streaming source offered no artist track list), then "Albums" — a row of album covers newest first ([ArtistAlbumsRow]),
+ * each opening its own album entry (pushed at every width, its art flying into that hero) — then "Tracks": every
+ * track of the artist album by album (`LibraryRepository.artistTracks`), plain rows with no disc headers. A tap
+ * plays the artist's tracks from that row; the track sheet offers "Go to album" (never "Go to artist": this is
+ * the artist).
  */
 @Composable
 internal fun ArtistDetailContent(
-    artistKey  : TrackKey,
-    state      : ArtistDetailState,
-    mode       : DetailMode,
-    paneColor  : Color,
-    listState  : LazyListState,
-    onOpenAlbum: (TrackKey) -> Unit,
-    modifier   : Modifier = Modifier,
+    artistKey   : TrackKey,
+    state       : ArtistDetailState,
+    mode        : DetailMode,
+    paneColor   : Color,
+    listState   : LazyListState,
+    player      : PlaybackController,
+    currentTrack: TrackKey?,
+    menuActions : TrackMenuActions,
+    onOpenAlbum : (TrackKey) -> Unit,
+    modifier    : Modifier = Modifier,
 ) {
     val artist = state.artist
     val missing = stringResource(R.string.library_missing_artist)
     val artistFallback = stringResource(R.string.library_unknown_artist)
+    val albumsLabel = stringResource(R.string.library_artist_albums)
+    val tracksLabel = stringResource(R.string.library_artist_tracks)
     val albumCount = if (state.albums.isNotEmpty()) state.albums.size else artist?.albumCount ?: 0
-    val subtitle = pluralStringResource(R.plurals.library_album_count, albumCount, albumCount)
+    val trackCount = state.tracks.size
+    val subtitle = metaLine(
+        parts     = listOf(
+            pluralStringResource(R.plurals.library_album_count, albumCount, albumCount),
+            if (trackCount > 0) pluralStringResource(R.plurals.library_track_count, trackCount, trackCount) else null,
+        ),
+        separator = stringResource(R.string.library_meta_separator),
+    )
     DetailFrame(
         mode      = mode,
         barTitle  = artist?.name.orEmpty(),
         paneColor = paneColor,
         listState = listState,
+        loaded    = !state.loading,
         modifier  = modifier,
     ) { handoff ->
         when {
@@ -322,20 +358,56 @@ internal fun ArtistDetailContent(
                     DetailArtHero(
                         title        = artist.name.ifBlank { artistFallback },
                         subtitle     = subtitle,
+                        onPlay       = if (state.tracks.isEmpty()) null else ({ player.playAll(state.tracks) }),
+                        onShuffle    = if (state.tracks.isEmpty()) null else ({ player.shuffleAll(state.tracks) }),
                         barClearance = mode.isScreen,
                         artModifier  = if (mode.isScreen) Modifier.libraryArtSharedBounds(libraryArtKey(artistKey)) else Modifier,
                         titleHandoff = handoff,
                     ) { HeroArt(artist.art) }
                 }
-                items(items = state.albums, key = { it.key.mediaId }, contentType = { "album" }) { album ->
-                    AlbumListCard(
-                        album             = album,
-                        onClick           = { onOpenAlbum(album.key) },
-                        // Every album here PUSHES its detail, so its art may fly into that hero at any width.
-                        artSharedModifier = Modifier.libraryArtSharedBounds(libraryArtKey(album.key)),
+                if (state.albums.isNotEmpty()) {
+                    item(key = ARTIST_ALBUMS_HEADER_KEY, contentType = "header") { SectionLabel(albumsLabel) }
+                    item(key = ARTIST_ALBUMS_ROW_KEY, contentType = "albums-row") {
+                        ArtistAlbumsRow(albums = state.albums, onOpenAlbum = onOpenAlbum)
+                    }
+                }
+                if (state.tracks.isNotEmpty()) {
+                    item(key = ARTIST_TRACKS_HEADER_KEY, contentType = "header") { SectionLabel(tracksLabel) }
+                    itemsIndexedTracks(
+                        tracks         = state.tracks,
+                        artistFallback = artistFallback,
+                        currentTrack   = currentTrack,
+                        menuActions    = menuActions,
+                        onPlay         = { index -> player.playFrom(state.tracks, index) },
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * An artist's albums as Material 3 Expressive's uncontained carousel: every cover full size, the row cut off at
+ * the edge, newest first. Every album here PUSHES its detail, so its art flies into that hero at any width.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ArtistAlbumsRow(albums: List<Album>, onOpenAlbum: (TrackKey) -> Unit) {
+    HorizontalUncontainedCarousel(
+        state          = rememberCarouselState { albums.size },
+        itemWidth      = ArtistAlbumItemWidth,
+        itemSpacing    = 8.dp,
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        modifier       = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+    ) { index ->
+        // The list can shrink under a pager that has not re-read its count yet.
+        val album = albums.getOrNull(index)
+        if (album != null) {
+            ArtistAlbumItem(
+                album             = album,
+                onClick           = { onOpenAlbum(album.key) },
+                artSharedModifier = Modifier.libraryArtSharedBounds(libraryArtKey(album.key)),
+            )
         }
     }
 }
@@ -380,6 +452,7 @@ internal fun PlaylistDetailContent(
         barTitle  = title,
         paneColor = paneColor,
         listState = listState,
+        loaded    = !state.loading,
         modifier  = modifier,
     ) { handoff ->
         when {

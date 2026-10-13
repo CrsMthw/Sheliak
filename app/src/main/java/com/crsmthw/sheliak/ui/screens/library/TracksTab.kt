@@ -1,10 +1,9 @@
 package com.crsmthw.sheliak.ui.screens.library
 
-import androidx.annotation.StringRes
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -13,7 +12,8 @@ import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.carousel.HorizontalUncontainedCarousel
+import androidx.compose.material3.carousel.CarouselDefaults
+import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -37,10 +37,13 @@ import com.crsmthw.sheliak.ui.components.TrackRowWithMenu
 
 /**
  * The Tracks tab, the library's home. A single pane at every width — under the library bar ("Sheliak" over
- * "N tracks", or "Syncing… N" while a source syncs), the Recently played and Most played carousels (only once
- * there is play history: [carouselSections]), then All tracks. With no art hero, a wide window never inflates the
- * header. A tap plays from that track with its list (the carousel, or every track) as the queue; a long-press
- * opens the track's menu. Pull to sync every source.
+ * "N tracks", or "Syncing… N" while a source syncs), the ONE carousel, "Most played" (only once something has been
+ * played: [mostPlayedTracks]), then All tracks with the alphabet fast scroller. With no art hero, a wide window
+ * never inflates the header. A tap plays from that track with its list (the carousel, or every track) as the
+ * queue; a long-press opens the track's sheet. Pull to sync every source.
+ *
+ * Nothing is listed until BOTH the tracks and the Most played read have landed: a carousel arriving after the
+ * rows would be inserted above a list already anchored on its first row, and stay hidden above the top.
  */
 @Composable
 internal fun TracksTab(
@@ -53,7 +56,8 @@ internal fun TracksTab(
     modifier              : Modifier = Modifier,
 ) {
     val tracks by viewModel.tracks.collectAsStateWithLifecycle()
-    val carousels by viewModel.carousels.collectAsStateWithLifecycle()
+    val mostPlayed by viewModel.mostPlayed.collectAsStateWithLifecycle()
+    val alphabet by viewModel.trackIndex.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val syncProgress by viewModel.syncProgress.collectAsStateWithLifecycle()
     val currentTrack by rememberCurrentTrackKey(viewModel.playerState)
@@ -64,17 +68,34 @@ internal fun TracksTab(
     val emptyTitle = stringResource(R.string.library_empty_tracks)
     val emptyBody = emptyBodyFor(hasSources, syncProgress)
     val allTracksLabel = stringResource(R.string.library_all_tracks)
-    val carouselLabels = CarouselKind.entries.associateWith { stringResource(it.labelRes) }
+    val mostPlayedLabel = stringResource(R.string.library_most_played)
 
     val list = tracks
+    val carousel = mostPlayed.orEmpty()
+    val emptyKind = emptyStateFor(
+        hasSources = hasSources,
+        listLoaded = list != null && mostPlayed != null,
+        listEmpty  = list.isNullOrEmpty(),
+    )
+    // The rows start after the carousel and its "All tracks" label.
+    val firstRowItem = if (emptyKind == null && carousel.isNotEmpty()) CAROUSEL_ITEMS_ABOVE_ROWS else 0
     LibraryRefreshFrame(
         isRefreshing = isRefreshing,
         onRefresh    = viewModel::refresh,
         paneColor    = paneColor,
         modifier     = modifier,
+        overlay      = {
+            if (emptyKind == null) {
+                LibraryFastScroller(listState = listState, index = alphabet, firstRowItem = firstRowItem)
+            }
+        },
     ) {
-        LibraryTabList(listState = listState, nestedScrollConnection = nestedScrollConnection) {
-            when (emptyStateFor(hasSources, listLoaded = list != null, listEmpty = list.isNullOrEmpty())) {
+        LibraryTabList(
+            listState              = listState,
+            nestedScrollConnection = nestedScrollConnection,
+            bottomRoom             = emitsBottomRoom(emptyKind),
+        ) {
+            when (emptyKind) {
                 LibraryEmptyKind.NOTHING_YET -> Unit
                 LibraryEmptyKind.NO_SOURCE,
                 LibraryEmptyKind.EMPTY_LIST  -> item(key = EMPTY_STATE_KEY) {
@@ -87,18 +108,16 @@ internal fun TracksTab(
                 }
                 null -> {
                     val rows = list.orEmpty()
-                    carousels.forEach { section ->
-                        item(key = "carousel-${section.kind.name}", contentType = "carousel") {
-                            TrackCarousel(
-                                label        = carouselLabels.getValue(section.kind),
-                                tracks       = section.tracks,
-                                player       = player,
-                                menuActions  = menu,
+                    if (carousel.isNotEmpty()) {
+                        item(key = MOST_PLAYED_KEY, contentType = "carousel") {
+                            MostPlayedCarousel(
+                                label       = mostPlayedLabel,
+                                tracks      = carousel,
+                                player      = player,
+                                menuActions = menu,
                             )
                         }
-                    }
-                    if (carousels.isNotEmpty()) {
-                        item(key = "all-tracks-header", contentType = "header") { SectionLabel(allTracksLabel) }
+                        item(key = ALL_TRACKS_HEADER_KEY, contentType = "header") { SectionLabel(allTracksLabel) }
                     }
                     itemsIndexed(
                         items       = rows,
@@ -119,6 +138,13 @@ internal fun TracksTab(
     }
 }
 
+/** Lazy-list keys of the Tracks tab's own items above the rows. */
+private const val MOST_PLAYED_KEY = "carousel-most-played"
+private const val ALL_TRACKS_HEADER_KEY = "all-tracks-header"
+
+/** How many lazy items sit above the first track row when the carousel shows: the carousel and its label. */
+private const val CAROUSEL_ITEMS_ABOVE_ROWS = 2
+
 /**
  * The body line of a tab's empty card: how music gets here when there is no source; that a sync is reading the
  * library while one runs; else that a pull syncs it.
@@ -132,9 +158,9 @@ internal fun emptyBodyFor(hasSources: Boolean?, syncProgress: Int?): String = st
     },
 )
 
-/** A section label over a carousel or the All tracks list. */
+/** A section label over a carousel or a list (Tracks' "Most played" / "All tracks", an artist's sections). */
 @Composable
-private fun SectionLabel(text: String) {
+internal fun SectionLabel(text: String) {
     Text(
         text     = text,
         style    = MaterialTheme.typography.titleMedium,
@@ -145,71 +171,59 @@ private fun SectionLabel(text: String) {
     )
 }
 
-/** Each carousel card's width — the M3 uncontained carousel keeps every item this wide. */
-private val CarouselItemWidth = 140.dp
+/**
+ * The large item's preferred width (the M3 multi-browse carousel sample's 186dp): the carousel fits as many large
+ * items as the width allows and adds the medium / small ones itself, so a wide window shows more, not bigger.
+ */
+private val MostPlayedItemWidth = 186.dp
+
+/** The carousel's height — a near-square large item with room for the two-line label at a large font. */
+private val MostPlayedHeight = 200.dp
 
 /**
- * One carousel: its label over Material's [HorizontalUncontainedCarousel] of square-art track cards
- * ([CarouselTrackCard]). A tap plays from that card with the carousel as the queue; a long-press opens the
- * track's menu under the card.
+ * "Most played": its label over Material 3 Expressive's [HorizontalMultiBrowseCarousel] — large, medium and small
+ * items that grow and shrink as they scroll, masked by the carousel itself, with the multi-browse fling (several
+ * items per fling, settling on an item). Each item is the track's art with the M3 item label (title and artist on
+ * a bottom gradient) fading as the item shrinks ([CarouselTrackItem]). A tap plays from that item with the carousel
+ * as the queue; a long-press opens the track's sheet.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TrackCarousel(
+private fun MostPlayedCarousel(
     label      : String,
     tracks     : List<Track>,
     player     : PlaybackController,
     menuActions: TrackMenuActions,
 ) {
+    val artistFallback = stringResource(R.string.library_unknown_artist)
     Column(modifier = Modifier.fillMaxWidth()) {
         SectionLabel(label)
-        HorizontalUncontainedCarousel(
-            state          = rememberCarouselState { tracks.size },
-            itemWidth      = CarouselItemWidth,
-            itemSpacing    = 8.dp,
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            modifier       = Modifier.fillMaxWidth(),
+        val state = rememberCarouselState { tracks.size }
+        HorizontalMultiBrowseCarousel(
+            state              = state,
+            preferredItemWidth = MostPlayedItemWidth,
+            itemSpacing        = 8.dp,
+            flingBehavior      = CarouselDefaults.multiBrowseFlingBehavior(state = state),
+            contentPadding     = PaddingValues(horizontal = 16.dp),
+            modifier           = Modifier.fillMaxWidth().height(MostPlayedHeight),
         ) { index ->
-            val track = tracks[index]
-            CarouselCardWithMenu(
-                track       = track,
-                onPlay      = { player.playFrom(tracks, index) },
-                menuActions = menuActions,
-            )
+            // The list can shrink under a pager that has not re-read its count yet.
+            val track = tracks.getOrNull(index)
+            if (track != null) {
+                var sheetOpen by remember { mutableStateOf(false) }
+                CarouselTrackItem(
+                    track          = track,
+                    artistFallback = artistFallback,
+                    onClick        = { player.playFrom(tracks, index) },
+                    onLongClick    = { sheetOpen = true },
+                )
+                TrackActionsMenu(
+                    track     = track,
+                    expanded  = sheetOpen,
+                    onDismiss = { sheetOpen = false },
+                    actions   = menuActions,
+                )
+            }
         }
     }
 }
-
-/** A carousel card with its long-press menu, composed only once opened (as `TrackRowWithMenu` does). */
-@Composable
-private fun CarouselCardWithMenu(
-    track      : Track,
-    onPlay     : () -> Unit,
-    menuActions: TrackMenuActions,
-) {
-    var menuOpen by remember { mutableStateOf(false) }
-    var menuUsed by remember { mutableStateOf(false) }
-    Box {
-        CarouselTrackCard(
-            track       = track,
-            onClick     = onPlay,
-            onLongClick = { menuUsed = true; menuOpen = true },
-        )
-        if (menuUsed) {
-            TrackActionsMenu(
-                track     = track,
-                expanded  = menuOpen,
-                onDismiss = { menuOpen = false },
-                actions   = menuActions,
-            )
-        }
-    }
-}
-
-/** A carousel's label. */
-@get:StringRes
-private val CarouselKind.labelRes: Int
-    get() = when (this) {
-        CarouselKind.RECENTLY_PLAYED -> R.string.library_recently_played
-        CarouselKind.MOST_PLAYED     -> R.string.library_most_played
-    }

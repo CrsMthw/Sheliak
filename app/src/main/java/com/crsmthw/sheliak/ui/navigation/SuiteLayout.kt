@@ -38,13 +38,6 @@ fun suiteLayoutFor(width: WindowWidth): SuiteLayout = when (width) {
 }
 
 /**
- * Whether search opens from a FAB that morphs into the search bar. Only on compact: on the rail widths the
- * search button sits in the rail header and Search opens with the ordinary push transition. Both ends of the
- * morph (the FAB and the Search screen's bar) ask this, so they can never disagree.
- */
-fun searchMorphEnabled(width: WindowWidth): Boolean = width == WindowWidth.Compact
-
-/**
  * Whether the library's list-detail tabs (Albums, Artists, Playlists) show the list and the selected item side by
  * side in two cards: from the medium width class up (600dp), exactly where the suite turns into a rail. Below it
  * a pick pushes the detail as its own navigation entry.
@@ -52,11 +45,15 @@ fun searchMorphEnabled(width: WindowWidth): Boolean = width == WindowWidth.Compa
 fun listDetailEnabled(width: WindowWidth): Boolean = width != WindowWidth.Compact
 
 /**
- * Whether [tab] is laid out as two panes at [width]. Tracks never is: it is the single-pane home at every width
- * (carousels + All tracks).
+ * Whether [tab] is laid out as two panes at [width]: only the list-detail tabs (Albums, Artists, Playlists).
+ * Tracks never is — it is the single-pane home at every width — and neither is Search, whose results open
+ * their details as pushed entries at every width.
  */
 fun libraryTabIsTwoPane(tab: LibraryTab, width: WindowWidth): Boolean =
-    listDetailEnabled(width) && tab != LibraryTab.TRACKS
+    listDetailEnabled(width) && tab in ListDetailTabs
+
+/** The tabs that are a list of items, each opening a detail: two-pane from 600dp ([libraryTabIsTwoPane]). */
+private val ListDetailTabs: Set<LibraryTab> = setOf(LibraryTab.ALBUMS, LibraryTab.ARTISTS, LibraryTab.PLAYLISTS)
 
 /** What the suite's own component takes out of the library's area, in px: the bar's height or the rail's width. */
 data class SuiteChromeExtent(val bottomBarPx: Int, val startRailPx: Int) {

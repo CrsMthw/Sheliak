@@ -6,8 +6,9 @@ import com.crsmthw.sheliak.ui.navigation.WindowWidth
 
 /*
  * The pure rules of the floating player surface (PlayerSurfaceHost): which surface shows, where the mini bar
- * sits, and whether the pop-out panel may exist at all. No Compose runtime, no android.* — unit-tested in
- * PlayerSurfaceTest.
+ * sits, whether the pop-out panel may exist at all, what crossing the pop-out line does to an open player, and
+ * which `"album-art"` registrations may match. No Compose runtime, no android.* — unit-tested in
+ * PlayerSurfaceTest and PlacementSeedingTest.
  */
 
 /**
@@ -28,8 +29,8 @@ const val TWO_PANE_BAR_WIDTH_FRACTION: Float = 0.58f
  * The surface the app wants on screen.
  *
  * @param hasTrack something is loaded in the player.
- * @param routeAllowsSurface the screen on top shows the floating surface (Library, Search and the detail
- *   entries — never Intro, Settings, the sign-in flow, Player or Queue).
+ * @param routeAllowsSurface the screen on top shows the floating surface (the Library — every tab, Search
+ *   included — and the detail entries; never Intro, Settings, the sign-in flow, Player or Queue).
  * @param panelWanted the user opened the pop-out panel over this screen and has not closed it.
  * @param canShowPanel the window can host the panel at all ([popOutAllowed]).
  */
@@ -51,6 +52,44 @@ fun playerSurfaceFor(
 fun popOutAllowed(width: WindowWidth, windowHeightDp: Float): Boolean =
     width != WindowWidth.Compact && windowHeightDp >= SHORT_SCREEN_MAX_HEIGHT_DP
 
+// ── Crossing the pop-out line ──────────────────────────────────────────────────────────────────────────────
+
+/** What crossing the pop-out line ([popOutAllowed] flipping) does to a player that is open at that moment. */
+enum class SurfaceSwap {
+    /** Nothing to swap. */
+    None,
+
+    /** The full player was on top and the window can now host the card: close the player, show the card. */
+    PlayerToCard,
+
+    /** The card was open over a screen and the window can no longer host it: close the card, push the player. */
+    CardToPlayer,
+}
+
+/**
+ * The swap for a change of [popOutAllowed] from [canShowPanelBefore] to [canShowPanelNow]. Keyed on the pop-out
+ * rule, not on the width class: folded landscape is wide but short, where the card cannot exist (a folded
+ * rotation with the full player open must not trade it for a card that cannot show).
+ *
+ * @param playerOnTop the full player is the top entry.
+ * @param hasTrack something is loaded (no card is opened for an empty player).
+ * @param cardOverScreen the card is wanted over the screen on top (it was on screen before the change).
+ */
+fun surfaceSwapFor(
+    canShowPanelBefore: Boolean,
+    canShowPanelNow   : Boolean,
+    playerOnTop       : Boolean,
+    hasTrack          : Boolean,
+    cardOverScreen    : Boolean,
+): SurfaceSwap = when {
+    canShowPanelBefore == canShowPanelNow      -> SurfaceSwap.None
+    canShowPanelNow && playerOnTop && hasTrack -> SurfaceSwap.PlayerToCard
+    !canShowPanelNow && cardOverScreen         -> SurfaceSwap.CardToPlayer
+    else                                       -> SurfaceSwap.None
+}
+
+// ── Where the mini bar sits ────────────────────────────────────────────────────────────────────────────────
+
 /**
  * Where the mini bar sits: [bottom] is its distance from the window's bottom edge, [start] the room the
  * navigation rail takes at the start edge, [widthFraction] the share of the remaining width it spans
@@ -62,8 +101,7 @@ data class MiniBarPlacement(val bottom: Dp, val start: Dp, val widthFraction: Fl
  * The mini bar's placement.
  *
  * The library's own chrome — the compact bottom bar, the rail, the two-pane split — counts only while the
- * Library entry is on top ([onLibrary]): during a push the outgoing Library is still composed and still
- * publishing, and a pushed screen has none of that chrome. So:
+ * Library is the screen the bar shows over ([onLibrary]): a pushed screen has none of that chrome. So:
  * - bottom: directly above the Library's bottom bar ([libraryBottomBar], which already includes the system
  *   inset the bar consumed), else on the system navigation bar ([navigationBarBottom]) — the rail layouts
  *   publish no bottom bar, so they land on the navigation bar too;
@@ -82,6 +120,94 @@ fun miniBarPlacement(
     start         = if (onLibrary) libraryStartRail else 0.dp,
     widthFraction = if (wide && onLibrary && libraryTwoPane) TWO_PANE_BAR_WIDTH_FRACTION else 1f,
 )
+
+/**
+ * What the Library's navigation suite publishes to the player surface (`PlayerSurfaceChrome`), as one value:
+ * the compact bottom bar's measured height, the rail's measured width, and whether a two-pane tab is shown.
+ */
+data class LibraryChrome(val bottomBar: Dp, val startRail: Dp, val twoPane: Boolean) {
+    companion object {
+        /** Nothing published: the Library is not composed (or has not measured yet). */
+        val None: LibraryChrome = LibraryChrome(bottomBar = 0.dp, startRail = 0.dp, twoPane = false)
+    }
+}
+
+/**
+ * Whether [chrome] describes a Library laid out for this width class: a bottom bar and no rail on compact, a rail
+ * and no bottom bar on the rail widths. Anything else is a Library that is not composed, or one still laid out
+ * for the previous width (the suite publishes its new extent a frame after a fold).
+ */
+fun chromeFits(wide: Boolean, chrome: LibraryChrome): Boolean =
+    if (wide) chrome.startRail > 0.dp && chrome.bottomBar == 0.dp else chrome.bottomBar > 0.dp && chrome.startRail == 0.dp
+
+/**
+ * The published chrome when it can be trusted for the CURRENT width class, else null.
+ *
+ * [staleAtWidthChange] is what was published when the width class last changed (null once something fresh
+ * arrived): until the publication differs from it, it still describes the old layout — a medium → expanded
+ * change keeps a rail on screen, so the collapsed rail's width would otherwise "fit" the expanded class and be
+ * taken for it.
+ */
+fun freshChrome(wide: Boolean, live: LibraryChrome, staleAtWidthChange: LibraryChrome?): LibraryChrome? = when {
+    staleAtWidthChange != null && live == staleAtWidthChange -> null
+    chromeFits(wide, live)                                   -> live
+    else                                                     -> null
+}
+
+/**
+ * The bar's target placement, or null when it cannot be known yet: the bar shows over the Library
+ * ([onLibrary]) but no chrome for this width class has been published ([libraryChrome] — the fresh chrome, else
+ * the last fresh chrome remembered for this width class). Over any other screen the bar sits on the navigation
+ * bar at full width, which needs nothing from the Library.
+ */
+fun miniBarTarget(
+    onLibrary          : Boolean,
+    wide               : Boolean,
+    libraryChrome      : LibraryChrome?,
+    navigationBarBottom: Dp,
+): MiniBarPlacement? = when {
+    !onLibrary            -> MiniBarPlacement(bottom = navigationBarBottom, start = 0.dp, widthFraction = 1f)
+    libraryChrome == null -> null
+    else                  -> miniBarPlacement(
+        onLibrary           = true,
+        wide                = wide,
+        libraryBottomBar    = libraryChrome.bottomBar,
+        libraryStartRail    = libraryChrome.startRail,
+        libraryTwoPane      = libraryChrome.twoPane,
+        navigationBarBottom = navigationBarBottom,
+    )
+}
+
+/** How the bar moves to a new placement. */
+enum class PlacementMotion { Snap, Animate }
+
+/**
+ * How the bar reaches a new placement: it GLIDES (the finite spec) only while it is on screen, the width class is
+ * the one its current placement was computed for, and that placement was a real one. A hidden bar snaps (it must
+ * be in place before it is shown); so does a fold — the whole window re-lays out on a fold, and a bar visibly
+ * gliding to the rail afterwards is the re-layout Cris reported (item 63) — and so does a move away from a
+ * PROVISIONAL placement (one taken while no chrome for this width class was known yet, see [miniBarTarget]).
+ */
+fun placementMotion(barShown: Boolean, widthClassChanged: Boolean, fromProvisional: Boolean): PlacementMotion =
+    if (barShown && !widthClassChanged && !fromProvisional) PlacementMotion.Animate else PlacementMotion.Snap
+
+// ── Which "album-art" registrations may match (Lyra's SharedContentConfig gating) ───────────────────────────
+
+/**
+ * Whether a full player is part of the picture: on top, or still composed while it leaves ([composedFullPlayers]
+ * counts every composed `PlayerScreen`, a leaving one until its exit transition ends). Lyra's
+ * `LocalPlayerRouteVisible` (the player among the navigation host's visible entries), rebuilt for Navigation 3.
+ */
+fun fullPlayerPresent(topIsPlayer: Boolean, composedFullPlayers: Int): Boolean =
+    topIsPlayer || composedFullPlayers > 0
+
+/**
+ * Whether a floating surface's art (the mini bar's or the card's) may MATCH: only while a partner exists — the
+ * full player ([fullPlayerPresent]) or the other floating surface taking part in the surface transition
+ * ([otherSurfaceInTransition]). The registration itself is permanent; only this enabled flag moves.
+ */
+fun floatingArtMayMatch(fullPlayerPresent: Boolean, otherSurfaceInTransition: Boolean): Boolean =
+    fullPlayerPresent || otherSurfaceInTransition
 
 /**
  * How long an abandoned seek takes to wind back: the remaining share of the transition, so a cancel at 5 %

@@ -3,17 +3,17 @@
 
 [versions]
 agp                    = "9.4.1"
-kotlin                 = "2.4.20"
+kotlin                 = "2.4.21"
 ksp                    = "2.3.12"
 room                   = "2.8.5"
 coreKtx                = "1.19.1"
 lifecycle              = "2.11.0"
 activityCompose        = "1.13.0"
 browser                = "1.10.0"
-composeBom             = "2026.09.01"
-material3              = "1.5.0-alpha29"
+composeBom             = "2026.10.00"
+material3              = "1.5.0-beta01"
 navigation3            = "1.2.0"
-navigationEvent        = "1.1.2"
+navigationEvent        = "1.2.0"
 media3                 = "1.11.1"
 datastore              = "1.2.1"
 retrofit               = "3.0.0"
@@ -40,8 +40,8 @@ androidx-lifecycle-viewmodel-nav3     = { group = "androidx.lifecycle",         
 androidx-activity-compose             = { group = "androidx.activity",                   name = "activity-compose",                    version.ref = "activityCompose" }
 # Custom Tabs: the Plex sign-in opens plex.tv in one (M1, Plex setup).
 androidx-browser                      = { group = "androidx.browser",                    name = "browser",                             version.ref = "browser" }
-# The alpha BOM: Material3 1.5.0-alpha29 hard-depends on Compose 1.13 alphas, and this BOM pins the set Google
-# tested together (docs/BUILD.md, "Why the alpha BOM").
+# The alpha BOM: the project rides the Expressive Material3 1.5 line, and this BOM pins the set Google tested
+# together with it (2026.10.00: Compose 1.13.0-beta01 + Material3 1.5.0-beta01; docs/BUILD.md, "Why the alpha BOM").
 androidx-compose-bom                  = { group = "androidx.compose",                    name = "compose-bom-alpha",                   version.ref = "composeBom" }
 androidx-ui                           = { group = "androidx.compose.ui",                 name = "ui" }
 androidx-ui-graphics                  = { group = "androidx.compose.ui",                 name = "ui-graphics" }

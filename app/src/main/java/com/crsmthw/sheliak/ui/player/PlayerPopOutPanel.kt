@@ -23,6 +23,8 @@ import com.crsmthw.sheliak.util.screenTransitionSpec
  *
  * @param slideDistancePx how far below its own height the card travels to leave the screen (its bottom margin
  *   plus the navigation bar), so it slides fully out past the window edge.
+ * @param artMayMatch whether the card art's permanent `"album-art"` registration may match right now (the host's
+ *   `SharedContentConfig` gate: a full player or the mini bar must be part of the picture).
  */
 @Composable
 fun PlayerPopOutPanel(
@@ -35,6 +37,7 @@ fun PlayerPopOutPanel(
     onFullScreen   : () -> Unit,
     onOpenQueue    : () -> Unit,
     modifier       : Modifier = Modifier,
+    artMayMatch    : Boolean = true,
 ) {
     panelTransition.AnimatedVisibility(
         visible  = { it },
@@ -42,6 +45,13 @@ fun PlayerPopOutPanel(
         enter    = slideInVertically(screenTransitionSpec<IntOffset>()) { it + slideDistancePx },
         exit     = slideOutVertically(screenTransitionSpec<IntOffset>()) { it + slideDistancePx },
     ) {
+        // Lyra's PreEnter bail-out (DESIGN §5.1): compose NOTHING unless the card is genuinely part of the current
+        // or the target state. AnimatedVisibility also composes its content while its transition reports initial
+        // value animations, and with the card and the bar as two children of ONE transition an interrupted change
+        // on the bar sets that here too: the card would compose in PreEnter and register a second, non-target
+        // "album-art" participant — the copy the match then takes for the outgoing one, i.e. a wrong flight.
+        if (!panelTransition.currentState && !panelTransition.targetState) return@AnimatedVisibility
+
         Card(
             shape     = RoundedCornerShape(24.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 24.dp),
@@ -51,6 +61,7 @@ fun PlayerPopOutPanel(
                 state           = state,
                 tints           = tints,
                 visibilityScope = this@AnimatedVisibility,
+                artMayMatch     = artMayMatch,
                 onClose         = onClose,
                 onFullScreen    = onFullScreen,
                 onOpenQueue     = onOpenQueue,

@@ -1,10 +1,13 @@
 package com.crsmthw.sheliak.ui.screens.library
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -16,14 +19,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.carousel.CarouselItemScope
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -41,10 +49,10 @@ import com.crsmthw.sheliak.util.longPress
 import com.crsmthw.sheliak.util.press
 
 /*
- * Lyra's library cards (`LibraryCards.kt`), ported onto the domain models: the Albums grid card, the album /
- * artist / playlist list cards, and the carousel track card. Every card draws its art with [Artwork] and takes the
- * container-transform modifier for its art tile from the caller (`artSharedModifier`): the "lib-art-…" shared
- * bounds where a tap PUSHES a detail entry, nothing in a two-pane tab.
+ * Lyra's library cards (`LibraryCards.kt`), ported onto the domain models: the album / artist / playlist list
+ * cards, and the two carousel items (Most played's track, an artist's album). Every card draws its art with
+ * [Artwork] and takes the container-transform modifier for its art tile from the caller (`artSharedModifier`):
+ * the "lib-art-…" shared bounds where a tap PUSHES a detail entry, nothing in a two-pane tab.
  */
 
 /** Edge of a list card's art tile (Lyra's 56dp). */
@@ -52,9 +60,6 @@ private val ListCardArtSize = 56.dp
 
 /** A list card's art corner (Lyra's 12dp). */
 private val ListCardArtShape = RoundedCornerShape(12.dp)
-
-/** The size bucket asked of the provider for a grid / carousel card: they are 120–200dp wide. */
-private val GridCardArtRequest = 200.dp
 
 /** Lyra's list-card shape and colours: a 16dp rounded `surfaceContainer` card, `primaryContainer` when selected. */
 @Composable
@@ -64,51 +69,6 @@ private fun listCardColors(selected: Boolean) = CardDefaults.cardColors(
 )
 
 private val ListCardShape = RoundedCornerShape(16.dp)
-
-/**
- * One album in the Albums grid: square art over the title and the artist (one line each). [selected] tints the
- * tile's text in a two-pane tab, where the card stays on screen beside its detail.
- */
-@Composable
-internal fun AlbumGridCard(
-    album            : Album,
-    onClick          : () -> Unit,
-    modifier         : Modifier = Modifier,
-    selected         : Boolean = false,
-    artSharedModifier: Modifier = Modifier,
-) {
-    val haptics = LocalHapticFeedback.current
-    val artistFallback = stringResource(R.string.library_unknown_artist)
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .combinedClickable(onClick = { haptics.confirm(); onClick() }, hapticFeedbackEnabled = false)
-            .padding(bottom = 4.dp),
-    ) {
-        Artwork(
-            art                = album.art,
-            sizePx             = artSizePx(GridCardArtRequest),
-            contentDescription = null,
-            modifier           = Modifier.fillMaxWidth().aspectRatio(1f).then(artSharedModifier),
-            shape              = MaterialTheme.shapes.medium,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text     = album.title,
-            style    = MaterialTheme.typography.titleSmall,
-            color    = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text     = album.artistName.ifBlank { artistFallback },
-            style    = MaterialTheme.typography.bodySmall,
-            color    = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
 
 /** One album as a list card (an artist's albums, album search results): art, title, "artist · year". */
 @Composable
@@ -260,50 +220,135 @@ internal fun PlaylistListCard(
     }
 }
 
-/**
- * One track in a carousel (Lyra's `TopTrackCard`): square art, a two-line title and the artist — `minLines = 2`
- * keeps every card the same height, so the row never re-measures as cards scroll in. Tap plays from here; hold
- * opens the track's menu.
- */
+// ── Carousel items ──────────────────────────────────────────────────────────
+
+/** The corner of a carousel item's mask: M3's carousel items use the extra-large shape. */
 @Composable
-internal fun CarouselTrackCard(
-    track      : Track,
-    onClick    : () -> Unit,
-    onLongClick: () -> Unit,
-    modifier   : Modifier = Modifier,
+private fun carouselItemShape() = MaterialTheme.shapes.extraLarge
+
+/** The size bucket asked of the provider for a carousel item's art (the items are up to ~200dp). */
+private val CarouselArtRequest = 200.dp
+
+/**
+ * One item of the Most played carousel: the track's art filling the item, masked by the carousel to its current
+ * size ([maskClip], the extra-large shape), with the M3 carousel's item label — the title over the artist on a
+ * bottom gradient. The label follows the mask: it is shifted to the mask's start edge (the item's
+ * `carouselItemDrawInfo.maskRect`) and fades with the item's size ([carouselLabelAlpha]), gone by the time the
+ * item is a small sliver — both read in the draw phase, so a scroll never recomposes the item.
+ *
+ * The gradient runs from transparent to the `surface` role and the label is `onSurface`, so it reads in both
+ * themes without a colour of its own. Tap plays from here; hold opens the track's sheet.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun CarouselItemScope.CarouselTrackItem(
+    track         : Track,
+    artistFallback: String,
+    onClick       : () -> Unit,
+    onLongClick   : () -> Unit,
+    modifier      : Modifier = Modifier,
 ) {
     val haptics = LocalHapticFeedback.current
-    val artistFallback = stringResource(R.string.library_unknown_artist)
-    Column(
+    val drawInfo = carouselItemDrawInfo
+    val scrimColor = MaterialTheme.colorScheme.surface
+    Box(
         modifier = modifier
-            .fillMaxWidth()
+            .fillMaxSize()
+            .maskClip(carouselItemShape())
             .combinedClickable(
                 onClick               = { haptics.confirm(); onClick() },
                 onLongClick           = { haptics.longPress(); onLongClick() },
                 onLongClickLabel      = stringResource(R.string.track_actions),
                 hapticFeedbackEnabled = false,
-            )
-            .padding(bottom = 4.dp),
+            ),
     ) {
         Artwork(
             art                = track.art,
-            sizePx             = artSizePx(GridCardArtRequest),
+            sizePx             = artSizePx(CarouselArtRequest),
             contentDescription = null,
-            modifier           = Modifier.fillMaxWidth().aspectRatio(1f),
-            shape              = MaterialTheme.shapes.medium,
+            modifier           = Modifier.fillMaxSize(),
+            shape              = RectangleShape,
+        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .graphicsLayer {
+                    alpha = carouselLabelAlpha(drawInfo.size, drawInfo.minSize, drawInfo.maxSize)
+                    translationX = drawInfo.maskRect.left
+                }
+                .background(
+                    Brush.verticalGradient(
+                        listOf(scrimColor.copy(alpha = 0f), scrimColor.copy(alpha = CAROUSEL_LABEL_SCRIM_ALPHA)),
+                    ),
+                )
+                .padding(start = 12.dp, end = 12.dp, top = 24.dp, bottom = 12.dp),
+        ) {
+            Text(
+                text     = track.title,
+                style    = MaterialTheme.typography.titleSmall,
+                color    = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text     = track.artistName.ifBlank { artistFallback },
+                style    = MaterialTheme.typography.bodySmall,
+                color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** How opaque the label's gradient gets at the item's bottom edge. */
+private const val CAROUSEL_LABEL_SCRIM_ALPHA = 0.9f
+
+/** An album item's width in an artist's Albums row (an uncontained carousel keeps every item this wide). */
+val ArtistAlbumItemWidth = 148.dp
+
+/**
+ * One album in an artist's "Albums" row (an uncontained carousel — every item full size, cut off at the edge):
+ * square art masked to the extra-large shape over the title and the year (one line each). The art takes the
+ * caller's [artSharedModifier] (the "lib-art-…" bounds: every album here PUSHES its detail). Tap opens it.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun CarouselItemScope.ArtistAlbumItem(
+    album            : Album,
+    onClick          : () -> Unit,
+    modifier         : Modifier = Modifier,
+    artSharedModifier: Modifier = Modifier,
+) {
+    val haptics = LocalHapticFeedback.current
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = { haptics.confirm(); onClick() }, hapticFeedbackEnabled = false)
+            .padding(bottom = 4.dp),
+    ) {
+        Artwork(
+            art                = album.art,
+            sizePx             = artSizePx(ArtistAlbumItemWidth),
+            contentDescription = null,
+            modifier           = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .then(artSharedModifier)
+                .maskClip(carouselItemShape()),
+            shape              = RectangleShape,
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            text     = track.title,
-            style    = MaterialTheme.typography.bodySmall,
-            minLines = 2,
-            maxLines = 2,
+            text     = album.title,
+            style    = MaterialTheme.typography.titleSmall,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            color    = MaterialTheme.colorScheme.onSurface,
         )
         Text(
-            text     = track.artistName.ifBlank { artistFallback },
-            style    = MaterialTheme.typography.labelSmall,
+            text     = album.year?.toString().orEmpty(),
+            style    = MaterialTheme.typography.bodySmall,
             color    = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

@@ -14,6 +14,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -29,6 +30,7 @@ import com.crsmthw.sheliak.di.AppContainer
 import com.crsmthw.sheliak.domain.TrackKey
 import com.crsmthw.sheliak.ui.components.ArtResolver
 import com.crsmthw.sheliak.ui.components.LocalArtResolver
+import com.crsmthw.sheliak.ui.components.LocalBottomFadeExtra
 import com.crsmthw.sheliak.ui.screens.intro.IntroScreen
 import com.crsmthw.sheliak.ui.screens.intro.IntroViewModel
 import com.crsmthw.sheliak.ui.screens.intro.IntroViewModelFactory
@@ -46,7 +48,6 @@ import com.crsmthw.sheliak.ui.screens.library.detail.PlaylistDetailViewModel
 import com.crsmthw.sheliak.ui.screens.library.detail.PlaylistDetailViewModelFactory
 import com.crsmthw.sheliak.ui.screens.player.PlayerScreen
 import com.crsmthw.sheliak.ui.screens.queue.QueueScreen
-import com.crsmthw.sheliak.ui.screens.search.SearchScreen
 import com.crsmthw.sheliak.ui.screens.search.SearchViewModel
 import com.crsmthw.sheliak.ui.screens.search.SearchViewModelFactory
 import com.crsmthw.sheliak.ui.screens.settings.SettingsScreen
@@ -62,12 +63,13 @@ import com.crsmthw.sheliak.util.SharedAxisSlide
 import com.crsmthw.sheliak.util.sharedAxisXBackward
 import com.crsmthw.sheliak.util.sharedAxisXBackwardSeekable
 import com.crsmthw.sheliak.util.sharedAxisXForward
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /**
  * The shell's [SharedTransitionScope] — the one around the navigation host — for shared elements that pair
- * across destinations (the search FAB ↔ search bar morph, library card art ↔ detail hero, the player art). Null
- * outside the shell, which turns every such element into a plain one.
+ * across destinations (library card art ↔ detail hero, the player art). Null outside the shell, which turns every
+ * such element into a plain one.
  */
 val LocalNavSharedTransitionScope = staticCompositionLocalOf<SharedTransitionScope?> { null }
 
@@ -82,17 +84,22 @@ private val BackStackSavedStateConfiguration = SavedStateConfiguration {
  *
  * ```
  * SharedTransitionLayout            (one scope for every cross-destination shared element)
- *   LocalArtResolver                (ArtRef → the live provider's Coil model, for every cover in the app)
+ *   LocalArtResolver                (ArtRef → the live provider's Coil model, for every cover in the app;
+ *                                    re-made when a provider comes or goes and when one bumps its artVersion)
  *     PlayerSurfaceHost             (mini bar + pop-out; told the top entry and whether it may show over it)
  *       NavDisplay                  (the destinations, M3 shared axis X on push / pop / predictive pop)
- *         Library                   (LibraryShell: the navigation suite + the four tabs, one entry)
- *         AlbumDetail · ArtistDetail · PlaylistDetail · Search · Settings · Sources · PlexSetup
+ *         Library                   (LibraryShell: the navigation suite + the five tabs, Search the centre one)
+ *         AlbumDetail · ArtistDetail · PlaylistDetail · Settings · Sources · PlexSetup
  *         Player · Queue · Intro
  * ```
  *
  * The navigation suite (bar / rail) is NOT around the host: it lives inside the Library entry, so a pushed
  * screen covers it with the rest of the library and a predictive back shows the whole library, suite included,
- * following the finger. The tabs — and a two-pane tab's selection — are state inside that entry, never keys.
+ * following the finger. The tabs — Search among them — and a two-pane tab's selection are state inside that
+ * entry, never keys.
+ *
+ * Every entry the player surface shows over ([playerSurfaceAllowed]) provides its bottom fades the mini bar's
+ * room ([LocalBottomFadeExtra], [ProvidePlayerSurfaceRoom]), so each list's fade ends right above the mini bar.
  *
  * Back-stack rules are pure functions in NavKeys.kt: the stack always starts with Library, everything else
  * pushes on top, and the player surface shows only where [playerSurfaceAllowed] says. The start is Intro until
@@ -132,9 +139,14 @@ fun SheliakNavGraph(
     val slidePx = with(LocalDensity.current) { SharedAxisSlide.roundToPx() }
 
     // ArtRef → Coil model through the live provider. Keyed by the provider list, so a cover asked for before its
-    // provider was built (a cold start) resolves again once it is.
+    // provider was built (a cold start) resolves again once it is, and by the sum of the providers' artVersions,
+    // so every Artwork asks again when a provider's art URLs change (Plex picking another connection) — every
+    // Artwork re-resolves: a changed URL is a new request, and a failed load of an unchanged URL is retried, with
+    // no screen change needed.
     val providers by container.providerRegistry.providers.collectAsStateWithLifecycle()
-    val artResolver = remember(providers) {
+    val artVersion by remember(providers) { combine(providers.map { it.artVersion }) { it.sum() } }
+        .collectAsStateWithLifecycle(initialValue = 0)
+    val artResolver = remember(providers, artVersion) {
         ArtResolver { ref, px -> container.providerRegistry.current(ref.providerId)?.artModel(ref, px) }
     }
 
@@ -152,8 +164,12 @@ fun SheliakNavGraph(
                 player         = container.playerStateManager,
                 topKey         = topKey,
                 surfaceAllowed = playerSurfaceAllowed(topKey),
-                onOpenPlayer   = { navigator.push(Player) },
+                // Not debounced: the fold swap (card → full player) opens it too, and must never be dropped
+                // for a push a moment before. The on-top check is the double-tap guard.
+                onOpenPlayer   = { navigator.pushNow(Player) },
                 onOpenQueue    = { navigator.push(Queue) },
+                // Crossing the 600dp line with the full player on top: the host swaps it for the pop-out card.
+                onClosePlayer  = { navigator.popPlayer() },
                 modifier       = Modifier.fillMaxSize(),
             ) { _ ->
                 NavDisplay(
@@ -188,60 +204,60 @@ fun SheliakNavGraph(
                                 },
                             )
                         }
-                        entry<Library> {
+                        entry<Library> { key ->
                             val viewModel: LibraryViewModel = viewModel(factory = LibraryViewModelFactory(container))
-                            LibraryShell(
-                                viewModel      = viewModel,
-                                onOpenSearch   = { navigator.push(Search) },
-                                onOpenSettings = { navigator.push(Settings) },
-                                onAddSource    = { navigator.push(PlexSetup) },
-                                onOpenAlbum    = openAlbum,
-                                onOpenArtist   = openArtist,
-                                onOpenPlaylist = openPlaylist,
-                            )
+                            val searchViewModel: SearchViewModel =
+                                viewModel(factory = SearchViewModelFactory(container))
+                            ProvidePlayerSurfaceRoom(key) {
+                                LibraryShell(
+                                    viewModel       = viewModel,
+                                    searchViewModel = searchViewModel,
+                                    onOpenSettings  = { navigator.push(Settings) },
+                                    onAddSource     = { navigator.push(PlexSetup) },
+                                    onOpenAlbum     = openAlbum,
+                                    onOpenArtist    = openArtist,
+                                    onOpenPlaylist  = openPlaylist,
+                                )
+                            }
                         }
                         entry<AlbumDetail> { key ->
                             val album = key.albumKey
                             val viewModel: AlbumDetailViewModel =
                                 viewModel(factory = AlbumDetailViewModelFactory(container, album))
-                            AlbumDetailScreen(
-                                albumKey     = album,
-                                viewModel    = viewModel,
-                                onBack       = navigator::popFromUi,
-                                onOpenArtist = openArtist,
-                            )
+                            ProvidePlayerSurfaceRoom(key) {
+                                AlbumDetailScreen(
+                                    albumKey     = album,
+                                    viewModel    = viewModel,
+                                    onBack       = navigator::popFromUi,
+                                    onOpenArtist = openArtist,
+                                )
+                            }
                         }
                         entry<ArtistDetail> { key ->
                             val artist = key.artistKey
                             val viewModel: ArtistDetailViewModel =
                                 viewModel(factory = ArtistDetailViewModelFactory(container, artist))
-                            ArtistDetailScreen(
-                                artistKey   = artist,
-                                viewModel   = viewModel,
-                                onBack      = navigator::popFromUi,
-                                onOpenAlbum = openAlbum,
-                            )
+                            ProvidePlayerSurfaceRoom(key) {
+                                ArtistDetailScreen(
+                                    artistKey   = artist,
+                                    viewModel   = viewModel,
+                                    onBack      = navigator::popFromUi,
+                                    onOpenAlbum = openAlbum,
+                                )
+                            }
                         }
                         entry<PlaylistDetail> { key ->
                             val viewModel: PlaylistDetailViewModel =
                                 viewModel(factory = PlaylistDetailViewModelFactory(container, key.id))
-                            PlaylistDetailScreen(
-                                playlistId   = key.id,
-                                viewModel    = viewModel,
-                                onBack       = navigator::popFromUi,
-                                onOpenAlbum  = openAlbum,
-                                onOpenArtist = openArtist,
-                            )
-                        }
-                        entry<Search> {
-                            val viewModel: SearchViewModel = viewModel(factory = SearchViewModelFactory(container))
-                            SearchScreen(
-                                viewModel      = viewModel,
-                                onBack         = navigator::popFromUi,
-                                onOpenAlbum    = openAlbum,
-                                onOpenArtist   = openArtist,
-                                onOpenPlaylist = openPlaylist,
-                            )
+                            ProvidePlayerSurfaceRoom(key) {
+                                PlaylistDetailScreen(
+                                    playlistId   = key.id,
+                                    viewModel    = viewModel,
+                                    onBack       = navigator::popFromUi,
+                                    onOpenAlbum  = openAlbum,
+                                    onOpenArtist = openArtist,
+                                )
+                            }
                         }
                         entry<Settings> {
                             val viewModel: SettingsViewModel =
@@ -290,9 +306,21 @@ fun SheliakNavGraph(
 }
 
 /**
+ * Gives [content] — one navigation entry, [key] — the bottom room its fades keep for the floating player surface
+ * ([LocalBottomFadeExtra]): the host's live inset on an entry the surface shows over, 0dp on any other
+ * ([playerSurfaceRoomFor]). Per entry, so an entry pushed over the library never inherits the inset the host
+ * holds for it.
+ */
+@Composable
+private fun ProvidePlayerSurfaceRoom(key: NavKey, content: @Composable () -> Unit) {
+    val room: Dp = playerSurfaceRoomFor(key, LocalPlayerSurfaceInset.current)
+    CompositionLocalProvider(LocalBottomFadeExtra provides room, content = content)
+}
+
+/**
  * Every back-stack edit the shell's controls make. Pushes and on-screen back arrows share one debounce, so a
- * double tap cannot push a screen twice or pop two screens. Not snapshot state: it is only read and written
- * from callbacks.
+ * double tap cannot push a screen twice or pop two screens ([pushNow] is the one push outside it). Not snapshot
+ * state: it is only read and written from callbacks.
  */
 private class ShellNavigator(private val backStack: MutableList<NavKey>) {
 
@@ -310,6 +338,15 @@ private class ShellNavigator(private val backStack: MutableList<NavKey>) {
         if (backStack.lastOrNull() != key) backStack.add(key)
     }
 
+    /**
+     * Pushes [key] at once, unless it is already on top — that check alone keeps a double tap from pushing it
+     * twice. For the full player, which the player surface also opens on its own when a fold swaps the pop-out
+     * card for it: that swap must never be dropped for falling within the debounce of another push.
+     */
+    fun pushNow(key: NavKey) {
+        if (backStack.lastOrNull() != key) backStack.add(key)
+    }
+
     fun popFromUi() = debounced { popFromSystem() }
 
     fun popFromSystem() {
@@ -323,6 +360,12 @@ private class ShellNavigator(private val backStack: MutableList<NavKey>) {
     fun popIfTop(key: NavKey) {
         if (backStack.lastOrNull() == key) popFromSystem()
     }
+
+    /**
+     * Pops the full player only while it is on top — the player surface swapping it for the pop-out card when the
+     * window crosses the 600dp line. Not debounced: it is not a tap.
+     */
+    fun popPlayer() = popIfTop(Player)
 
     private companion object {
         /** Longer than a double tap, shorter than a deliberate second navigation. */

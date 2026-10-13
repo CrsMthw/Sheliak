@@ -8,6 +8,7 @@ import com.crsmthw.sheliak.data.db.entity.PlaylistEntity
 import com.crsmthw.sheliak.data.db.entity.TrackEntity
 import com.crsmthw.sheliak.data.db.toEntity
 import com.crsmthw.sheliak.data.provider.IndexAlbum
+import com.crsmthw.sheliak.data.provider.IndexArtist
 import com.crsmthw.sheliak.data.provider.IndexTrack
 import com.crsmthw.sheliak.domain.TrackKey
 import kotlinx.coroutines.flow.Flow
@@ -35,9 +36,15 @@ class LibraryRepositoryTest {
         IndexTrack(itemId = id, title = "Airbag", artistName = "Radiohead", albumTitle = "OK Computer",
             albumItemId = albumId, discNo = 1, trackNo = 1).toEntity(pid, 1)
 
+    private val plexArtist = IndexArtist(itemId = "7", name = "The Beatles", nameSort = "Beatles", albumCount = 3)
+        .toEntity("plex:aaa", 1)
+    private val jellyArtist = IndexArtist(itemId = "a1", name = "The Beatles", albumCount = 2).toEntity("jellyfin:bbb", 1)
+
     private val dao = FakeLibraryDao(
         albums = listOf(plexAlbum, jellyAlbum),
         albumsMerged = listOf(plexAlbum),
+        artists = listOf(plexArtist, jellyArtist),
+        artistsMerged = listOf(plexArtist),
     )
     private val merge = MutableStateFlow(false)
     private val repo = LibraryRepository(dao, PlaylistRepository(FakePlaylistDao()), merge)
@@ -69,6 +76,46 @@ class LibraryRepositoryTest {
     }
 
     @Test
+    fun `an artist's tracks follow the switch - by id off, by artist key on`() = runTest {
+        dao.artistKeys[plexArtist.providerId to plexArtist.itemId] = plexArtist.artistKey
+        dao.artistTracksById[plexArtist.providerId to plexArtist.itemId] = listOf(track("plex:aaa", "1", "101"))
+        dao.artistTracksByKey[plexArtist.artistKey] =
+            listOf(track("plex:aaa", "1", "101"), track("jellyfin:bbb", "x", "f00d"))
+        val key = TrackKey("plex:aaa", "7")
+
+        assertEquals(listOf(TrackKey("plex:aaa", "1")), repo.artistTracks(key).first().map { it.key })
+        merge.value = true
+        assertEquals(
+            listOf(TrackKey("plex:aaa", "1"), TrackKey("jellyfin:bbb", "x")),
+            repo.artistTracks(key).first().map { it.key },
+        )
+    }
+
+    @Test
+    fun `a merged artist that has left the index has no tracks`() = runTest {
+        merge.value = true
+        assertEquals(emptyList(), repo.artistTracks(TrackKey("plex:aaa", "gone")).first())
+    }
+
+    @Test
+    fun `sorted albums carry each row's own sort key, index for index, and follow the switch`() = runTest {
+        val off = repo.albumsSorted.first()
+        assertEquals(off.items.size, off.sortKeys.size)
+        assertEquals(listOf("ok computer", "ok computer"), off.sortKeys)
+        merge.value = true
+        val on = repo.albumsSorted.first()
+        assertEquals(listOf(TrackKey("plex:aaa", "101")), on.items.map { it.key })
+        assertEquals(listOf("ok computer"), on.sortKeys)
+    }
+
+    @Test
+    fun `sorted artists use the provider's sort name, not the display name`() = runTest {
+        val sorted = repo.artistsSorted.first()
+        assertEquals(listOf("The Beatles", "The Beatles"), sorted.items.map { it.name })
+        assertEquals(listOf("beatles", "the beatles"), sorted.sortKeys)
+    }
+
+    @Test
     fun `blank search text queries nothing`() = runTest {
         val r = repo.search("  ?! ").first()
         assertTrue(r.isEmpty)
@@ -90,8 +137,13 @@ class LibraryRepositoryTest {
 private class FakeLibraryDao(
     private val albums: List<AlbumEntity>,
     private val albumsMerged: List<AlbumEntity>,
+    private val artists: List<ArtistEntity> = emptyList(),
+    private val artistsMerged: List<ArtistEntity> = emptyList(),
 ) : LibraryDao {
     val albumKeys = mutableMapOf<Pair<String, String>, String>()
+    val artistKeys = mutableMapOf<Pair<String, String>, String>()
+    val artistTracksById = mutableMapOf<Pair<String, String>, List<TrackEntity>>()
+    val artistTracksByKey = mutableMapOf<String, List<TrackEntity>>()
     val albumTracksByKey = mutableMapOf<String, List<TrackEntity>>()
     val albumTracksById = mutableMapOf<Pair<String, String>, List<TrackEntity>>()
     val byId = mutableListOf<TrackEntity>()
@@ -115,14 +167,18 @@ private class FakeLibraryDao(
         flowOf(albumTracksById[providerId to itemId].orEmpty())
     override fun albumTracksMerged(albumKey: String): Flow<List<TrackEntity>> =
         flowOf(albumTracksByKey[albumKey].orEmpty())
-    override fun artists(): Flow<List<ArtistEntity>> = flowOf(emptyList())
-    override fun artistsMerged(): Flow<List<ArtistEntity>> = flowOf(emptyList())
+    override fun artists(): Flow<List<ArtistEntity>> = flowOf(artists)
+    override fun artistsMerged(): Flow<List<ArtistEntity>> = flowOf(artistsMerged)
     override fun artistCount(): Flow<Int> = flowOf(0)
     override fun artistCountMerged(): Flow<Int> = flowOf(0)
     override fun artist(providerId: String, itemId: String): Flow<ArtistEntity?> = flowOf(null)
-    override suspend fun artistKeyOf(providerId: String, itemId: String): String? = null
+    override suspend fun artistKeyOf(providerId: String, itemId: String): String? = artistKeys[providerId to itemId]
     override fun artistAlbums(providerId: String, itemId: String): Flow<List<AlbumEntity>> = flowOf(emptyList())
     override fun artistAlbumsMerged(artistKey: String): Flow<List<AlbumEntity>> = flowOf(emptyList())
+    override fun artistTracks(providerId: String, itemId: String): Flow<List<TrackEntity>> =
+        flowOf(artistTracksById[providerId to itemId].orEmpty())
+    override fun artistTracksMerged(artistKey: String): Flow<List<TrackEntity>> =
+        flowOf(artistTracksByKey[artistKey].orEmpty())
     override fun recentlyPlayed(limit: Int): Flow<List<TrackEntity>> = flowOf(emptyList())
     override fun mostPlayed(limit: Int): Flow<List<TrackEntity>> = flowOf(emptyList())
     override fun searchTracks(query: String, limit: Int): Flow<List<TrackEntity>> = searched()

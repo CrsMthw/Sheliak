@@ -35,8 +35,9 @@ private val TrackRowArtShape = RoundedCornerShape(4.dp)
  * the duration at the end. The title takes the accent colour while this is the [isCurrent] track.
  *
  * Tap fires a `confirm()` haptic and [onClick] (play from here); long-press fires `longPress()` and [onLongClick]
- * (the caller opens the track's menu — anchor a `DropdownMenu` beside this row in the same `Box`). The click's
- * own haptic is switched off: the app's haptics go through the Settings gate (`util/Haptics.kt`).
+ * (the caller opens the track's sheet — [TrackRowWithMenu] does both; never a `DropdownMenu`, see
+ * [TrackActionsMenu]). The click's own haptic is switched off: the app's haptics go through the Settings gate
+ * (`util/Haptics.kt`).
  *
  * @param artistFallback shown when the track has no artist name (a string resource, resolved by the caller).
  */

@@ -16,11 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyGridScope
-import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -32,6 +27,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -40,17 +36,19 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.crsmthw.sheliak.ui.components.AlphabetFastScroller
+import com.crsmthw.sheliak.ui.components.AlphabetIndex
 import com.crsmthw.sheliak.ui.components.BarContentGap
 import com.crsmthw.sheliak.ui.components.BottomFadeScrim
 import com.crsmthw.sheliak.ui.components.BottomFadeSpacer
+import com.crsmthw.sheliak.ui.components.LocalBottomFadeExtra
 import com.crsmthw.sheliak.ui.components.TopBarFade
-import com.crsmthw.sheliak.ui.navigation.LocalPlayerSurfaceInset
 import com.crsmthw.sheliak.util.PullThresholdHaptics
 import com.crsmthw.sheliak.util.lateralPaneSwap
 
 /*
- * The library's shared layouts: the pull-to-refresh frame every list sits in, the list and grid shapes, and the
- * two-pane Row the list-detail tabs use from 600dp.
+ * The library's shared layouts: the pull-to-refresh frame every list sits in, the one list shape (Albums is a list
+ * too since M1 fix round 1 — no grid), and the two-pane Row the list-detail tabs use from 600dp.
  */
 
 /**
@@ -68,6 +66,8 @@ import com.crsmthw.sheliak.util.lateralPaneSwap
  * while [isRefreshing] holds it at the threshold it is a still, full arc, so nothing on screen animates endlessly
  * (the app's finite-motion rule). The refresh itself is a sync of every source; the hold ends with the sync round
  * ([awaitSyncRound]), and the Tracks subtitle carries a longer sync's progress.
+ *
+ * [overlay] draws over the list AND its fades — the alphabet fast scroller ([LibraryFastScroller]) goes there.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,6 +76,7 @@ internal fun LibraryRefreshFrame(
     onRefresh   : () -> Unit,
     paneColor   : Color,
     modifier    : Modifier = Modifier,
+    overlay     : @Composable BoxScope.() -> Unit = {},
     content     : @Composable BoxScope.() -> Unit,
 ) {
     val state = rememberPullToRefreshState()
@@ -96,19 +97,43 @@ internal fun LibraryRefreshFrame(
         content()
         TopBarFade(paneColor = paneColor, modifier = Modifier.align(Alignment.TopCenter))
         BottomFadeScrim(color = paneColor)
+        overlay()
     }
 }
 
 /**
- * The one list layout the Tracks, Artists and Playlists tabs use: the hoisted [listState], the bar's
- * [nestedScrollConnection], the seam gap under the bar, the tab's [content], then the trailing bottom room. One
- * composable so the tabs cannot drift apart in insets, scroll wiring or seams.
+ * The library's alphabet fast scroller ([AlphabetFastScroller]) over a tab's list: the shared component kept above
+ * the same player-surface room the list's fade keeps ([LocalBottomFadeExtra]) — the one call the four tabs and the
+ * two-pane left lists make.
+ */
+@Composable
+internal fun BoxScope.LibraryFastScroller(
+    listState   : LazyListState,
+    index       : AlphabetIndex,
+    firstRowItem: Int = 0,
+) {
+    AlphabetFastScroller(
+        listState     = listState,
+        index         = index,
+        firstRowItem  = firstRowItem,
+        bottomPadding = LocalBottomFadeExtra.current,
+    )
+}
+
+/**
+ * The one list layout the four tabs use: the hoisted [listState], the bar's [nestedScrollConnection], the seam gap
+ * under the bar, the tab's [content], then the trailing bottom room. One composable so the tabs cannot drift apart
+ * in insets, scroll wiring or seams.
+ *
+ * [bottomRoom] is false while the tab knows nothing yet ([emitsBottomRoom]): the bottom room must never be the
+ * list's only item when the rows arrive, or the list would open scrolled to the end.
  */
 @Composable
 internal fun LibraryTabList(
     listState             : LazyListState,
     nestedScrollConnection: NestedScrollConnection,
     modifier              : Modifier = Modifier,
+    bottomRoom            : Boolean = true,
     content               : LazyListScope.() -> Unit,
 ) {
     LazyColumn(
@@ -119,42 +144,15 @@ internal fun LibraryTabList(
         contentPadding = PaddingValues(top = BarContentGap),
     ) {
         content()
-        // The bottom room the fade scrim covers, plus the player surface's inset, so the last row can scroll
-        // clear of both. An inset-aware item rather than `contentPadding`, because only an inset modifier knows
-        // what the navigation suite's bar has already consumed (CLAUDE.md rule 9).
-        item(key = BOTTOM_ROOM_KEY, contentType = BOTTOM_ROOM_KEY) {
-            BottomFadeSpacer(extra = LocalPlayerSurfaceInset.current)
+        // The bottom room the fade scrim covers, plus the entry's player-surface room (BottomFadeSpacer's default,
+        // the same value the scrim reads), so the last row can scroll clear of both. An inset-aware item rather
+        // than `contentPadding`, because only an inset modifier knows what the navigation suite's bar has already
+        // consumed (CLAUDE.md rule 9).
+        if (bottomRoom) {
+            item(key = BOTTOM_ROOM_KEY, contentType = BOTTOM_ROOM_KEY) { BottomFadeSpacer() }
         }
     }
 }
-
-/** The Albums tab's grid — [LibraryTabList]'s twin for a [LazyVerticalGrid] of adaptive columns. */
-@Composable
-internal fun LibraryTabGrid(
-    gridState             : LazyGridState,
-    nestedScrollConnection: NestedScrollConnection,
-    modifier              : Modifier = Modifier,
-    content               : LazyGridScope.() -> Unit,
-) {
-    LazyVerticalGrid(
-        columns               = GridCells.Adaptive(minSize = AlbumGridMinCellWidth),
-        state                 = gridState,
-        modifier              = modifier
-            .fillMaxSize()
-            .nestedScroll(nestedScrollConnection),
-        contentPadding        = PaddingValues(start = 16.dp, end = 16.dp, top = BarContentGap),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement   = Arrangement.spacedBy(12.dp),
-    ) {
-        content()
-        item(key = BOTTOM_ROOM_KEY, span = { GridItemSpan(maxLineSpan) }, contentType = BOTTOM_ROOM_KEY) {
-            BottomFadeSpacer(extra = LocalPlayerSurfaceInset.current)
-        }
-    }
-}
-
-/** An album cell is at least this wide; the grid fits as many columns as that allows. */
-private val AlbumGridMinCellWidth = 140.dp
 
 /** The empty state's lazy-list key, shared by the four tabs (each has its own list). */
 internal const val EMPTY_STATE_KEY = "empty"
@@ -200,7 +198,8 @@ internal fun <K : Any> LibraryTwoPane(
             colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
-            list()
+            // The mini bar sits over the DETAIL card only (0.58, end-aligned): the list card keeps no room for it.
+            CompositionLocalProvider(LocalBottomFadeExtra provides 0.dp) { list() }
         }
         Card(
             modifier  = Modifier.weight(TWO_PANE_DETAIL_WEIGHT).fillMaxHeight(),

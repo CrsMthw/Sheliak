@@ -44,7 +44,9 @@ data class PlexServerCandidate(
  * `PlexSetup(context, container.credentialStore, container.httpClient, container.json)`.
  *
  * 1. [startPin] → open [PinSession.authUrl] in a Custom Tab; [awaitPin] (or [pollPin] once a second) until it
- *    yields the account token. Skip both when [storedAccountToken] has one (a second server).
+ *    yields the account token. Skip both when [storedAccountToken] has one (a second server, or a server added
+ *    again: the account token outlives its servers until [forgetAccount]). The PIN's code is never shown —
+ *    it is a strong PIN that the auth URL carries.
  * 2. [listServers] with that token → the user picks a [PlexServerCandidate].
  * 3. If [localNetworkPermission] returns a permission, request it before step 4 (Android 17 blocks LAN access
  *    without it; a denial only means LAN connections are skipped).
@@ -52,7 +54,8 @@ data class PlexServerCandidate(
  * 5. [complete] stores the tokens and returns the [ProviderInstance]; hand it to `SourcesRepository.add`.
  *
  * Later: [libraries] reads an instance's picks, [withLibraries] changes them (then
- * `SourcesRepository.update(instance, resync = true)`).
+ * `SourcesRepository.update(instance, resync = true)`); [hasAccount] / [forgetAccount] drive Sources' "Forget
+ * Plex account".
  *
  * Every call returns a [Result]; a failure carries a `ProviderException` whose [ProviderError] the UI maps to
  * its own strings (AUTH on the PIN = it expired, start again; NETWORK = no connection answered).
@@ -102,6 +105,18 @@ class PlexSetup(
 
     /** The account token stored by an earlier [complete], if any (adding another server needs no new PIN). */
     suspend fun storedAccountToken(): String? = withContext(Dispatchers.IO) { credentials.token(PlexKeys.ACCOUNT_TOKEN) }
+
+    /** True while a plex.tv account token is stored (Sources shows "Forget Plex account" then). */
+    suspend fun hasAccount(): Boolean = storedAccountToken() != null
+
+    /**
+     * Signs this phone out of the plex.tv account: deletes the account's keys only
+     * ([PlexCredentialRules.onForgetAccount]). Servers already added keep their own tokens and keep playing; the
+     * next server added asks for a sign-in.
+     */
+    suspend fun forgetAccount(): Result<Unit> = resultOf {
+        withContext(Dispatchers.IO) { PlexCredentialRules.onForgetAccount().forEach(credentials::removeAll) }
+    }
 
     /** true = valid, false = refused (sign in again); a failure = could not check (keep it). */
     suspend fun checkAccountToken(accountToken: String): Result<Boolean> = auth.checkToken(accountToken)
@@ -162,7 +177,6 @@ class PlexSetup(
         withContext(Dispatchers.IO) {
             credentials.putToken(PlexKeys.ACCOUNT_TOKEN, accountToken)
             credentials.putToken(PlexKeys.serverToken(server.machineId), server.accessToken)
-            PlexAccountServers.add(credentials, server.machineId)
         }
         ProviderInstance(
             id          = PlexProvider.instanceId(server.machineId),

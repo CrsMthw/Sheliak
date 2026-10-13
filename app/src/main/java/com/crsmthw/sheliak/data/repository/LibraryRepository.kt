@@ -55,6 +55,22 @@ class LibraryRepository(
 
     val playlists: Flow<List<Playlist>> = playlistRepository.playlists
 
+    /**
+     * [albums] with each album's sort key (`title_sort`) beside it, from the same read, so the two can never
+     * disagree. The sort key is what the list is ordered by — the provider's own sort title when it sent one
+     * ("The Wall" may sort as "wall") — so the alphabet scroller indexes these, never the display titles.
+     */
+    val albumsSorted: Flow<SortedRows<Album>> =
+        byMerge(dao::albums, dao::albumsMerged).map { rows ->
+            SortedRows(items = rows.map(AlbumEntity::toDomain), sortKeys = rows.map(AlbumEntity::titleSort))
+        }
+
+    /** [artists] with each artist's sort key (`name_sort`), from the same read — see [albumsSorted]. */
+    val artistsSorted: Flow<SortedRows<Artist>> =
+        byMerge(dao::artists, dao::artistsMerged).map { rows ->
+            SortedRows(items = rows.map(ArtistEntity::toDomain), sortKeys = rows.map(ArtistEntity::nameSort))
+        }
+
     val counts: Flow<LibraryCounts> = combine(
         byMerge(dao::trackCount, dao::trackCountMerged),
         byMerge(dao::albumCount, dao::albumCountMerged),
@@ -88,6 +104,20 @@ class LibraryRepository(
             }
         },
     ).map { it.map(AlbumEntity::toDomain) }
+
+    /**
+     * The artist's tracks — those credited to them and every track of their albums — album by album: the album's
+     * year newest first (no year last), the album, then disc and track number. With merging on, the tracks of
+     * every artist sharing the artist's `artist_key`, one copy per recording.
+     */
+    fun artistTracks(key: TrackKey): Flow<List<Track>> = byMerge(
+        perProvider = { dao.artistTracks(key.providerId, key.itemId) },
+        merged = {
+            flow { emit(dao.artistKeyOf(key.providerId, key.itemId)) }.flatMapLatest { artistKey ->
+                if (artistKey == null) flowOf(emptyList()) else dao.artistTracksMerged(artistKey)
+            }
+        },
+    ).map { it.map(TrackEntity::toDomain) }
 
     fun playlist(id: Long): Flow<Playlist?> = playlistRepository.playlist(id)
 
@@ -152,3 +182,9 @@ class LibraryRepository(
         private const val ID_CHUNK = 500
     }
 }
+
+/**
+ * A list and the sort key of each of its rows, index for index ([LibraryRepository.albumsSorted]). The keys are
+ * the index's own normalised sort strings (lower-case, diacritics stripped, leading punctuation dropped).
+ */
+data class SortedRows<T>(val items: List<T>, val sortKeys: List<String>)

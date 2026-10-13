@@ -4,6 +4,11 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -11,8 +16,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Settings
@@ -30,8 +33,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.Lifecycle
@@ -47,17 +53,25 @@ import com.crsmthw.sheliak.ui.navigation.HomeLibraryTab
 import com.crsmthw.sheliak.ui.navigation.LibraryTab
 import com.crsmthw.sheliak.ui.navigation.LocalPlayerSurfaceChrome
 import com.crsmthw.sheliak.ui.navigation.LocalPopOutPanelOpen
-import com.crsmthw.sheliak.ui.navigation.SearchFab
 import com.crsmthw.sheliak.ui.navigation.SheliakNavigationSuite
+import com.crsmthw.sheliak.ui.navigation.TabReselect
 import com.crsmthw.sheliak.ui.navigation.WindowWidth
 import com.crsmthw.sheliak.ui.navigation.currentWindowWidth
 import com.crsmthw.sheliak.ui.navigation.libraryTabIsTwoPane
 import com.crsmthw.sheliak.ui.navigation.libraryTabOnBack
-import com.crsmthw.sheliak.ui.navigation.searchMorphEnabled
 import com.crsmthw.sheliak.ui.navigation.suiteLayoutFor
+import com.crsmthw.sheliak.ui.navigation.tabReselectFor
+import com.crsmthw.sheliak.ui.screens.search.SearchField
+import com.crsmthw.sheliak.ui.screens.search.SearchPage
+import com.crsmthw.sheliak.ui.screens.search.SearchPageState
+import com.crsmthw.sheliak.ui.screens.search.SearchQuerySync
+import com.crsmthw.sheliak.ui.screens.search.SearchViewModel
+import com.crsmthw.sheliak.ui.screens.search.rememberSearchPageState
+import com.crsmthw.sheliak.ui.screens.search.searchSubtitle
 import com.crsmthw.sheliak.util.fadeThrough
 import com.crsmthw.sheliak.util.horizontalSystemBarsPadding
 import com.crsmthw.sheliak.util.press
+import com.crsmthw.sheliak.util.screenTransitionSpec
 import kotlinx.coroutines.launch
 
 /**
@@ -72,38 +86,54 @@ internal class LibraryNavigation(
 )
 
 /**
- * The Library navigation entry: the navigation suite with the four tabs, and ONE layout for all of them —
+ * The Library navigation entry: the navigation suite with the five tabs, and ONE layout for all of them —
  *
  * ```
- * SheliakNavigationSuite                  bar / collapsed rail / expanded rail; consumes the inset it covers,
- *                                         publishes its extent to the player surface
+ * SheliakNavigationSuite                  bar / collapsed rail / expanded rail — Tracks, Albums, SEARCH (centre,
+ *                                         in an M3 Expressive shape), Artists, Playlists; consumes what it
+ *                                         covers, publishes its extent to the player surface
  *   Scaffold(contentWindowInsets = 0)
  *     Column(horizontalSystemBarsPadding)
- *       RootTopBar                        ONE bar: hoisted state, Settings gear; only its TEXT changes per tab
+ *       RootTopBar                        ONE bar: hoisted state, Settings gear; only its TEXT changes per tab;
+ *                                         belowBar = the search field, on the Search tab only
  *       Box(weight 1)
  *         AnimatedContent(tab)            M3 fade through; each tab's own list state, pull-to-refresh and seams;
- *                                         Albums / Artists / Playlists two-pane from 600dp
- *         SearchFab                       compact only, composed once over every tab
+ *                                         Albums / Artists / Playlists two-pane from 600dp; Search's result pages
  * ```
  *
- * The selected tab — and each list-detail tab's selected item — is saveable state here, never a back-stack key, so
- * a tab change or a pick in a two-pane tab neither pushes nor replaces anything; system back on another tab
- * returns to Tracks first ([libraryTabOnBack]). Every tab carries a subtitle (its count; "Syncing… N" on Tracks
- * while a source syncs), so the large bar is one height on all four.
+ * The selected tab — and each list-detail tab's selected item, and the Search tab's query, page and positions —
+ * is saveable state here, never a back-stack key, so a tab change or a pick in a two-pane tab neither pushes nor
+ * replaces anything; system back on another tab returns to Tracks first ([libraryTabOnBack]). Every tab carries a
+ * subtitle (its count; "Syncing… N" on Tracks while a source syncs; "N results" on Search), so the large bar is
+ * one height on all five.
+ *
+ * Search is a tab like the others: the first tap shows its page with the field NOT focused; re-tapping the
+ * selected Search tab focuses the field and raises the keyboard ([tabReselectFor]); leaving the tab — another
+ * tab, or back — drops the focus and the keyboard. Its ViewModel ([searchViewModel]) lives in this entry's store.
  */
 @Composable
 fun LibraryShell(
-    viewModel     : LibraryViewModel,
-    onOpenSearch  : () -> Unit,
-    onOpenSettings: () -> Unit,
-    onAddSource   : () -> Unit,
-    onOpenAlbum   : (TrackKey) -> Unit,
-    onOpenArtist  : (TrackKey) -> Unit,
-    onOpenPlaylist: (Long) -> Unit,
-    modifier      : Modifier = Modifier,
+    viewModel      : LibraryViewModel,
+    searchViewModel: SearchViewModel,
+    onOpenSettings : () -> Unit,
+    onAddSource    : () -> Unit,
+    onOpenAlbum    : (TrackKey) -> Unit,
+    onOpenArtist   : (TrackKey) -> Unit,
+    onOpenPlaylist : (Long) -> Unit,
+    modifier       : Modifier = Modifier,
 ) {
     var tab by rememberSaveable { mutableStateOf(HomeLibraryTab) }
-    LibraryBackHandler(tab = tab, onBackTo = { tab = it })
+    val search = rememberSearchPageState()
+    SearchQuerySync(viewModel = searchViewModel, state = search)
+
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    // Every tab change goes through here — a suite tap or a back — so leaving Search always lets go of the field.
+    val selectTab: (LibraryTab) -> Unit = { next ->
+        if (tab == LibraryTab.SEARCH && next != LibraryTab.SEARCH) search.releaseField(focusManager, keyboard)
+        tab = next
+    }
+    LibraryBackHandler(tab = tab, onBackTo = selectTab)
 
     val width = currentWindowWidth()
     val navigation = LibraryNavigation(onOpenAlbum, onOpenArtist, onOpenPlaylist, onAddSource)
@@ -113,20 +143,24 @@ fun LibraryShell(
     SheliakNavigationSuite(
         layout        = suiteLayoutFor(width),
         selectedTab   = tab,
-        onSelectTab   = { tab = it },
-        onReselectTab = { reselected -> scope.launch { lists.scrollToTop(reselected) } },
-        onOpenSearch  = onOpenSearch,
+        onSelectTab   = selectTab,
+        onReselectTab = { reselected ->
+            when (tabReselectFor(reselected)) {
+                TabReselect.FocusSearchField -> search.focusField(keyboard)
+                TabReselect.ScrollToTop      -> scope.launch { lists.scrollToTop(reselected) }
+            }
+        },
         modifier      = modifier.fillMaxSize(),
     ) {
         LibraryContent(
             viewModel       = viewModel,
+            searchViewModel = searchViewModel,
+            search          = search,
             tab             = tab,
             width           = width,
-            showSearchFab   = searchMorphEnabled(width),
             lists           = lists,
             selections      = selections,
             navigation      = navigation,
-            onOpenSearch    = onOpenSearch,
             onOpenSettings  = onOpenSettings,
         )
     }
@@ -157,13 +191,13 @@ private fun LibraryBackHandler(tab: LibraryTab, onBackTo: (LibraryTab) -> Unit) 
 @Composable
 private fun LibraryContent(
     viewModel      : LibraryViewModel,
+    searchViewModel: SearchViewModel,
+    search         : SearchPageState,
     tab            : LibraryTab,
     width          : WindowWidth,
-    showSearchFab  : Boolean,
     lists          : LibraryListStates,
     selections     : LibrarySelections,
     navigation     : LibraryNavigation,
-    onOpenSearch   : () -> Unit,
     onOpenSettings : () -> Unit,
 ) {
     // Saveable, so the bar's collapse survives navigating away and back; ONE state for the one bar, so a tab
@@ -180,7 +214,8 @@ private fun LibraryContent(
 
     // Asked of the target tab (published) and of each tab the fade composes (the outgoing half keeps its layout).
     fun isTwoPane(shown: LibraryTab): Boolean = libraryTabIsTwoPane(shown, width) && when (shown) {
-        LibraryTab.TRACKS    -> false
+        LibraryTab.TRACKS,
+        LibraryTab.SEARCH    -> false
         LibraryTab.ALBUMS    -> !albums.isNullOrEmpty()
         LibraryTab.ARTISTS   -> !artists.isNullOrEmpty()
         LibraryTab.PLAYLISTS -> !playlists.isNullOrEmpty()
@@ -200,14 +235,38 @@ private fun LibraryContent(
                 .horizontalSystemBarsPadding(),
         ) {
             val scrollBehavior = rememberRootTopBarScrollBehavior(barState)
+            val keyboard = LocalSoftwareKeyboardController.current
             RootTopBar(
                 title          = stringResource(tab.titleRes),
-                subtitle       = subtitleFor(tab, counts, syncProgress),
+                subtitle       = if (tab == LibraryTab.SEARCH) {
+                    searchSubtitle(searchViewModel, search, libraryTracks = counts.tracks)
+                } else {
+                    subtitleFor(tab, counts, syncProgress)
+                },
                 scrollBehavior = scrollBehavior,
                 actions        = { SettingsAction(onClick = onOpenSettings) },
                 containerColor = paneColor,
-                // A tab change crossfades the words; a count ticking during a sync is written in place.
+                // A tab change crossfades the words; a count ticking during a sync (or a result count changing
+                // as the query is typed) is written in place.
                 textKey        = tab,
+                // The search field rides under the bar on the Search tab only. Its slot opens and closes on the
+                // one finite spec, so the content below glides instead of jumping when the tab changes.
+                belowBar       = {
+                    AnimatedVisibility(
+                        visible = tab == LibraryTab.SEARCH,
+                        enter   = fadeIn(screenTransitionSpec()) +
+                            expandVertically(screenTransitionSpec(), expandFrom = Alignment.Top),
+                        exit    = fadeOut(screenTransitionSpec()) +
+                            shrinkVertically(screenTransitionSpec(), shrinkTowards = Alignment.Top),
+                        label   = "search-field",
+                    ) {
+                        SearchField(
+                            state     = search,
+                            paneColor = paneColor,
+                            onSearch  = { keyboard?.hide() },
+                        )
+                    }
+                },
             )
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 AnimatedContent(
@@ -234,7 +293,7 @@ private fun LibraryContent(
                             twoPane                = shownTwoPane,
                             selection              = selections.album.value?.let { TrackKey.parseMediaId(it) },
                             onSelect               = { selections.album.value = it.mediaId },
-                            gridState              = lists.albums,
+                            listState              = lists.albums,
                             nestedScrollConnection = connection,
                             navigation             = navigation,
                             paneColor              = paneColor,
@@ -251,6 +310,15 @@ private fun LibraryContent(
                             navigation             = navigation,
                             paneColor              = paneColor,
                         )
+                        LibraryTab.SEARCH    -> SearchPage(
+                            viewModel              = searchViewModel,
+                            state                  = search,
+                            nestedScrollConnection = connection,
+                            paneColor              = paneColor,
+                            onOpenAlbum            = navigation.onOpenAlbum,
+                            onOpenArtist           = navigation.onOpenArtist,
+                            onOpenPlaylist         = navigation.onOpenPlaylist,
+                        )
                         LibraryTab.PLAYLISTS -> PlaylistsTab(
                             viewModel              = viewModel,
                             playlists              = playlists,
@@ -265,7 +333,6 @@ private fun LibraryContent(
                         )
                     }
                 }
-                if (showSearchFab) SearchFab(onClick = onOpenSearch)
             }
         }
     }
@@ -285,13 +352,17 @@ private fun PublishTwoPane(twoPane: Boolean) {
     }
 }
 
-/** The bar subtitle for [tab]: its own count, or "Syncing… N" on Tracks while a source syncs. */
+/**
+ * The bar subtitle for a library tab: its own count, or "Syncing… N" on Tracks while a source syncs. (Search's
+ * subtitle is its own — `searchSubtitle` — and is asked of it directly; here it reads like Tracks.)
+ */
 @Composable
 private fun subtitleFor(tab: LibraryTab, counts: LibraryCounts, syncProgress: Int?): String = when {
     tab == LibraryTab.TRACKS && syncProgress != null -> stringResource(R.string.library_syncing, syncProgress)
     else -> {
         val count = when (tab) {
-            LibraryTab.TRACKS    -> counts.tracks
+            LibraryTab.TRACKS,
+            LibraryTab.SEARCH    -> counts.tracks
             LibraryTab.ALBUMS    -> counts.albums
             LibraryTab.ARTISTS   -> counts.artists
             LibraryTab.PLAYLISTS -> counts.playlists
@@ -306,6 +377,7 @@ private val LibraryTab.titleRes: Int
     get() = when (this) {
         LibraryTab.TRACKS    -> R.string.app_name
         LibraryTab.ALBUMS    -> R.string.nav_albums
+        LibraryTab.SEARCH    -> R.string.nav_search
         LibraryTab.ARTISTS   -> R.string.nav_artists
         LibraryTab.PLAYLISTS -> R.string.nav_playlists
     }
@@ -314,7 +386,8 @@ private val LibraryTab.titleRes: Int
 @get:PluralsRes
 private val LibraryTab.countRes: Int
     get() = when (this) {
-        LibraryTab.TRACKS    -> R.plurals.library_track_count
+        LibraryTab.TRACKS,
+        LibraryTab.SEARCH    -> R.plurals.library_track_count
         LibraryTab.ALBUMS    -> R.plurals.library_album_count
         LibraryTab.ARTISTS   -> R.plurals.library_artist_count
         LibraryTab.PLAYLISTS -> R.plurals.library_playlist_count
@@ -330,20 +403,25 @@ private fun SettingsAction(onClick: () -> Unit) {
 }
 
 /**
- * The four tabs' scroll positions, hoisted above the tab fade (during it both tabs are composed, and each keeps
- * its position across a switch) and shared by a tab's single- and two-pane layouts (a fold / unfold keeps it).
+ * The four list tabs' scroll positions (Search keeps its own, in `SearchPageState`), hoisted above the tab fade
+ * (during it both tabs are composed, and each keeps its position across a switch) and shared by a tab's single-
+ * and two-pane layouts (a fold / unfold keeps it).
  */
 internal class LibraryListStates(
     val tracks   : LazyListState,
-    val albums   : LazyGridState,
+    val albums   : LazyListState,
     val artists  : LazyListState,
     val playlists: LazyListState,
 ) {
-    /** Re-selecting a tab in the suite jumps its list back to the top (no scroll animation to outlive). */
+    /**
+     * Re-selecting a tab in the suite jumps its list back to the top (no scroll animation to outlive). Search has
+     * no list of its own here — re-selecting it focuses the field instead (`tabReselectFor`).
+     */
     suspend fun scrollToTop(tab: LibraryTab) {
         when (tab) {
             LibraryTab.TRACKS    -> tracks.scrollToItem(0)
             LibraryTab.ALBUMS    -> albums.scrollToItem(0)
+            LibraryTab.SEARCH    -> Unit
             LibraryTab.ARTISTS   -> artists.scrollToItem(0)
             LibraryTab.PLAYLISTS -> playlists.scrollToItem(0)
         }
@@ -372,7 +450,7 @@ private fun rememberLibrarySelections(): LibrarySelections {
 @Composable
 private fun rememberLibraryListStates(): LibraryListStates {
     val tracks = rememberLazyListState()
-    val albums = rememberLazyGridState()
+    val albums = rememberLazyListState()
     val artists = rememberLazyListState()
     val playlists = rememberLazyListState()
     return remember(tracks, albums, artists, playlists) {

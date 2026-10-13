@@ -1,8 +1,7 @@
 package com.crsmthw.sheliak.ui.screens.library
 
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material3.MaterialTheme
@@ -18,10 +17,12 @@ import com.crsmthw.sheliak.domain.Album
 import com.crsmthw.sheliak.domain.TrackKey
 
 /**
- * The Albums tab: a grid of square-art cards ([AlbumGridCard]). Below 600dp a pick PUSHES the album's own entry,
- * its art flying into the hero ("lib-art-…" shared bounds); from 600dp the tab is two-pane ([LibraryTwoPane]):
- * the grid in the left card, the picked album ([selection], saveable tab state) in the right, swapped with the
- * lateral slide. Pull to sync every source.
+ * The Albums tab: a LIST of album cards ([AlbumListCard]: 56dp cover, the title, "artist · year") at every width —
+ * the M1 grid left in fix round 1 (an unfolded grid cell grew to most of the pane). Below 600dp a pick PUSHES the
+ * album's own entry, its art flying into the hero ("lib-art-…" shared bounds); from 600dp the tab is two-pane
+ * ([LibraryTwoPane]): this list in the left card, the picked album ([selection], saveable tab state) in the right,
+ * swapped with the lateral slide. The alphabet fast scroller rides on the list, in the left card too. Pull to sync
+ * every source.
  */
 @Composable
 internal fun AlbumsTab(
@@ -31,7 +32,7 @@ internal fun AlbumsTab(
     twoPane               : Boolean,
     selection             : TrackKey?,
     onSelect              : (TrackKey) -> Unit,
-    gridState             : LazyGridState,
+    listState             : LazyListState,
     nestedScrollConnection: NestedScrollConnection,
     navigation            : LibraryNavigation,
     paneColor             : Color,
@@ -39,21 +40,28 @@ internal fun AlbumsTab(
 ) {
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val syncProgress by viewModel.syncProgress.collectAsStateWithLifecycle()
+    val alphabet by viewModel.albumIndex.collectAsStateWithLifecycle()
     val emptyTitle = stringResource(R.string.library_empty_albums)
     val emptyBody = emptyBodyFor(hasSources, syncProgress)
+    val emptyKind = emptyStateFor(hasSources, listLoaded = albums != null, listEmpty = albums.isNullOrEmpty())
 
-    val grid: @Composable (Color, Modifier) -> Unit = { gridColor, frameModifier ->
+    val list: @Composable (Color, Modifier) -> Unit = { listColor, frameModifier ->
         LibraryRefreshFrame(
             isRefreshing = isRefreshing,
             onRefresh    = viewModel::refresh,
-            paneColor    = gridColor,
+            paneColor    = listColor,
             modifier     = frameModifier,
+            overlay      = { if (emptyKind == null) LibraryFastScroller(listState = listState, index = alphabet) },
         ) {
-            LibraryTabGrid(gridState = gridState, nestedScrollConnection = nestedScrollConnection) {
-                when (emptyStateFor(hasSources, listLoaded = albums != null, listEmpty = albums.isNullOrEmpty())) {
+            LibraryTabList(
+                listState              = listState,
+                nestedScrollConnection = nestedScrollConnection,
+                bottomRoom             = emitsBottomRoom(emptyKind),
+            ) {
+                when (emptyKind) {
                     LibraryEmptyKind.NOTHING_YET -> Unit
                     LibraryEmptyKind.NO_SOURCE,
-                    LibraryEmptyKind.EMPTY_LIST  -> item(key = EMPTY_STATE_KEY, span = { GridItemSpan(maxLineSpan) }) {
+                    LibraryEmptyKind.EMPTY_LIST  -> item(key = EMPTY_STATE_KEY) {
                         LibraryEmptyState(
                             icon        = Icons.Outlined.Album,
                             title       = emptyTitle,
@@ -62,7 +70,7 @@ internal fun AlbumsTab(
                         )
                     }
                     null -> items(items = albums.orEmpty(), key = { it.key.mediaId }, contentType = { "album" }) { album ->
-                        AlbumGridCard(
+                        AlbumListCard(
                             album             = album,
                             onClick           = {
                                 if (twoPane) onSelect(album.key) else navigation.onOpenAlbum(album.key)
@@ -81,11 +89,11 @@ internal fun AlbumsTab(
             selection = selection,
             hintIcon  = Icons.Outlined.Album,
             hintText  = stringResource(R.string.library_pick_album),
-            list      = { grid(MaterialTheme.colorScheme.surface, Modifier) },
+            list      = { list(MaterialTheme.colorScheme.surface, Modifier) },
             detail    = { key -> AlbumDetailPane(key, viewModel, nestedScrollConnection, navigation) },
             modifier  = modifier,
         )
     } else {
-        grid(paneColor, modifier)
+        list(paneColor, modifier)
     }
 }

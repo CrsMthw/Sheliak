@@ -131,6 +131,9 @@ fun rememberRootTopBarScrollBehavior(
  * collapse. It paints nothing of its own — its content paints the same [containerColor] as the bar
  * (a tab row's `containerColor`) so bar and slot read as one surface. The [BarContentGap] and
  * [TopBarFade] seam then belongs under the SLOT, i.e. in the weighted `Box`, exactly as without it.
+ * Content the slot shows only some of the time — the library's search field, on its Search tab only — opens and
+ * closes its own size on the finite spec (`AnimatedVisibility` with `expandVertically` / `shrinkVertically` on
+ * `screenTransitionSpec()`), so the content below glides instead of jumping when it comes or goes.
  *
  * ### The gap and the fade under the bar
  *

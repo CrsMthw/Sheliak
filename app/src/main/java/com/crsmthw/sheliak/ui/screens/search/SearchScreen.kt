@@ -3,13 +3,12 @@ package com.crsmthw.sheliak.ui.screens.search
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
@@ -24,8 +23,8 @@ import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,6 +39,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,11 +51,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -62,22 +63,22 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.SoftwareKeyboardController
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.crsmthw.sheliak.R
 import com.crsmthw.sheliak.data.repository.SearchResults
 import com.crsmthw.sheliak.domain.TrackKey
+import com.crsmthw.sheliak.ui.components.BarContentGap
 import com.crsmthw.sheliak.ui.components.BottomFadeScrim
 import com.crsmthw.sheliak.ui.components.BottomFadeSpacer
+import com.crsmthw.sheliak.ui.components.TopBarFade
 import com.crsmthw.sheliak.ui.components.TrackRowWithMenu
-import com.crsmthw.sheliak.ui.navigation.LocalPlayerSurfaceInset
-import com.crsmthw.sheliak.ui.navigation.searchBarSharedBounds
 import com.crsmthw.sheliak.ui.screens.library.AlbumListCard
 import com.crsmthw.sheliak.ui.screens.library.ArtistListCard
 import com.crsmthw.sheliak.ui.screens.library.PlaylistListCard
@@ -88,277 +89,337 @@ import com.crsmthw.sheliak.ui.screens.library.playlistArtKey
 import com.crsmthw.sheliak.ui.screens.library.rememberCurrentTrackKey
 import com.crsmthw.sheliak.ui.screens.library.rememberTrackMenuActions
 import com.crsmthw.sheliak.ui.screens.library.trackKeyOf
-import com.crsmthw.sheliak.util.SearchBarHeight
-import com.crsmthw.sheliak.util.SearchBarSideMargin
-import com.crsmthw.sheliak.util.confirm
-import com.crsmthw.sheliak.util.horizontalSystemBarsPadding
 import com.crsmthw.sheliak.util.pagerTrackingIndicator
 import com.crsmthw.sheliak.util.press
 import com.crsmthw.sheliak.util.screenTransitionSpec
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/** The floating bar's gap below the status bar. */
-private val SearchBarTopMargin = 8.dp
-
-/** Bar top margin + bar + the gap under it: where content below the floating bar starts. */
-private val SearchBarBlockHeight = SearchBarTopMargin + SearchBarHeight + 12.dp
-
-/**
- * What a `PrimaryTabRow` of text-only tabs measures (`PrimaryNavigationTabTokens.ContainerHeight`, internal in
- * material3; re-check on a Material3 bump).
+/*
+ * Search — the library's centre tab (`LibraryTab.SEARCH`), not a destination of its own. `LibraryShell` composes
+ * its three parts:
+ *
+ *   SearchField           in the ONE RootTopBar's `belowBar` slot, shown on the Search tab only
+ *   SearchPage            the tab's content in the library's fade-through: the result-kind tabs and the pages
+ *   rememberSearchPageState  everything that must outlive a tab change, hoisted above the fade
+ *
+ * The bar's title is "Search" and its subtitle a count (`searchSubtitleOf`). Selecting the tab shows the page and
+ * leaves the field alone; re-selecting it focuses the field and raises the keyboard ([SearchPageState.focusField]).
  */
-private val SearchTabRowHeight = 48.dp
 
-/** Breathing room between the tab row and the first result. */
-private val SearchTabRowGap = 12.dp
-
-/** How far past its opaque end the top scrim fades out. */
-private val TopScrimTail = 24.dp
-
-/** The result pages, in tab order. */
-private enum class SearchPage(@param:StringRes val labelRes: Int) {
+/** The kinds of result, one page each, in tab order. */
+private enum class ResultKind(@param:StringRes val labelRes: Int) {
     TRACKS(R.string.nav_tracks),
     ALBUMS(R.string.nav_albums),
     ARTISTS(R.string.nav_artists),
     PLAYLISTS(R.string.nav_playlists),
 }
 
+/** The field's side margins — the bar's own title inset, so the field lines up with "Search" above it. */
+private val SearchFieldSideMargin = 16.dp
+
+/** The gap above and below the field inside the bar's `belowBar` slot. */
+private val SearchFieldVerticalMargin = 8.dp
+
 /**
- * Search: a floating Material 3 search field over the page — no app bar — whose back arrow is its own leading
- * icon, so the whole control is one box. On compact widths that box is the far end of the search FAB's container
- * transform ([searchBarSharedBounds]); on rail widths Search arrives with the ordinary push. The screen itself is
- * identical at every width.
- *
- * Below the field: a hint while it is blank; once something is typed, Lyra's result pages — a [PrimaryTabRow]
- * (Tracks / Albums / Artists / Playlists) floating under the bar, its indicator following a [HorizontalPager] of
- * one list per kind. A track plays the results from there; an album, artist or playlist opens its detail entry
- * (its art flying into the hero); a long-press on a track opens its menu. Dragging a list drops the keyboard.
- *
- * The field is focused once per visit, after this destination is RESUMED (Navigation 3 resumes an entry only on
- * top and settled), so the keyboard rises after the FAB → bar morph has landed, never during it; a re-entry over
- * a typed query does not re-focus.
+ * The Search tab's state, hoisted above the library's tab fade (`AnimatedContent` drops the saveable state of the
+ * content it removes): the field's text, its focus, the result pager and one list position per page, and the
+ * query the pages were last reset for. So a round trip through another tab, or through a pushed detail, comes
+ * back to the same query, page and scroll position.
+ */
+@Stable
+class SearchPageState internal constructor(
+    /** The field's text — the one source of the query (the ViewModel follows it). */
+    val query: TextFieldState,
+    internal val pager: PagerState,
+    internal val lists: List<LazyListState>,
+    lastReset: MutableState<String?>,
+) {
+    internal val focusRequester = FocusRequester()
+
+    /** Whether the field holds the focus (written by the field). */
+    internal var fieldFocused by mutableStateOf(false)
+
+    /** The query the pages last scrolled back to their tops for (saveable: see [searchPagesNeedReset]). */
+    internal var lastResetQuery: String? by lastReset
+
+    /**
+     * The selected Search tab tapped again: the field takes the focus and the keyboard rises — also when the
+     * field already had the focus with the keyboard swiped away. A field not composed yet ignores the request.
+     */
+    fun focusField(keyboard: SoftwareKeyboardController?) {
+        focusRequester.requestFocus()
+        keyboard?.show()
+    }
+
+    /** Leaving the Search tab: the field lets go of the focus and the keyboard goes down. */
+    fun releaseField(focusManager: FocusManager, keyboard: SoftwareKeyboardController?) {
+        if (fieldFocused) focusManager.clearFocus(force = true)
+        keyboard?.hide()
+    }
+}
+
+/** The Search tab's hoisted state — call it once, above the library's tab fade. */
+@Composable
+fun rememberSearchPageState(): SearchPageState {
+    val query = rememberTextFieldState()
+    val pager = rememberPagerState { ResultKind.entries.size }
+    val lists = ResultKind.entries.map { rememberLazyListState() }
+    val lastReset = rememberSaveable { mutableStateOf<String?>(null) }
+    return remember(query, pager, lastReset) { SearchPageState(query, pager, lists, lastReset) }
+}
+
+/**
+ * Feeds the field's text to [viewModel] as it changes (and once on composition, for a restored query). Composed
+ * by the shell for the Library entry's life, so the query is the ViewModel's whether or not the tab shows.
  */
 @Composable
-fun SearchScreen(
-    viewModel     : SearchViewModel,
-    onBack        : () -> Unit,
-    onOpenAlbum   : (TrackKey) -> Unit,
-    onOpenArtist  : (TrackKey) -> Unit,
-    onOpenPlaylist: (Long) -> Unit,
-    modifier      : Modifier = Modifier,
+fun SearchQuerySync(viewModel: SearchViewModel, state: SearchPageState) {
+    LaunchedEffect(state, viewModel) {
+        snapshotFlow { state.query.text.toString() }.collect { viewModel.setQuery(it) }
+    }
+}
+
+/**
+ * The Search tab's bar subtitle ([searchSubtitleOf]): "N results" for the query in the field, or the library's
+ * "N tracks" while it is blank. Collects the results only while it is composed — the shell asks for it on the
+ * Search tab only.
+ */
+@Composable
+fun searchSubtitle(viewModel: SearchViewModel, state: SearchPageState, libraryTracks: Int): String {
+    val results by viewModel.results.collectAsStateWithLifecycle()
+    val queryBlank by remember(state) { derivedStateOf { state.query.text.isBlank() } }
+    return when (val subtitle = searchSubtitleOf(queryBlank, results, libraryTracks)) {
+        is SearchSubtitle.Results       ->
+            pluralStringResource(R.plurals.search_result_count, subtitle.count, subtitle.count)
+        is SearchSubtitle.LibraryTracks ->
+            pluralStringResource(R.plurals.library_track_count, subtitle.count, subtitle.count)
+    }
+}
+
+/**
+ * The search field, for the library bar's `belowBar` slot: a `SearchBarDefaults.InputField` in a stadium
+ * `surfaceContainerHigh` [Surface] — a search glyph leading, a clear ✕ trailing once something is typed, the
+ * placeholder "Search your library" (no other hint anywhere). It paints [paneColor] around itself, like the bar
+ * it rides under. [onSearch] is the keyboard's search action.
+ *
+ * The non-deprecated `InputField` needs a `SearchBarState`; it is created already EXPANDED and left alone,
+ * because nothing here ever expands into a full-screen search.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SearchField(
+    state    : SearchPageState,
+    paneColor: Color,
+    onSearch : () -> Unit,
+    modifier : Modifier = Modifier,
 ) {
     val haptics = LocalHapticFeedback.current
     val keyboard = LocalSoftwareKeyboardController.current
-    val focusManager = LocalFocusManager.current
-    val focusRequester = remember { FocusRequester() }
-    val queryState = rememberTextFieldState()
-    // Derived, so only a blank ↔ non-blank flip recomposes the screen — not every keystroke.
-    val queryBlank by remember(queryState) { derivedStateOf { queryState.text.isBlank() } }
-    val results by viewModel.results.collectAsStateWithLifecycle()
-    val background = MaterialTheme.colorScheme.background
-
-    // The field's text → the ViewModel, as it changes (and once on entry, for a restored query).
-    LaunchedEffect(queryState, viewModel) {
-        snapshotFlow { queryState.text.toString() }.collect { viewModel.setQuery(it) }
+    val searchBarState = rememberSearchBarState(initialValue = SearchBarValue.Expanded)
+    // Derived, so only a blank ↔ non-blank flip recomposes the field's trailing slot — not every keystroke.
+    val queryBlank by remember(state) { derivedStateOf { state.query.text.isBlank() } }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(paneColor)
+            .padding(horizontal = SearchFieldSideMargin, vertical = SearchFieldVerticalMargin),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape    = CircleShape,
+            color    = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ) {
+            SearchBarDefaults.InputField(
+                textFieldState = state.query,
+                searchBarState = searchBarState,
+                onSearch       = { onSearch() },
+                modifier       = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(state.focusRequester)
+                    .onFocusChanged { state.fieldFocused = it.isFocused },
+                placeholder    = { Text(stringResource(R.string.search_placeholder)) },
+                leadingIcon    = { Icon(Icons.Filled.Search, contentDescription = null) },
+                // Clearing starts the next query, so the field is left focused with the keyboard up.
+                trailingIcon   = if (queryBlank) {
+                    null
+                } else {
+                    {
+                        IconButton(
+                            onClick = {
+                                haptics.press()
+                                state.query.clearText()
+                                state.focusField(keyboard)
+                            },
+                        ) {
+                            Icon(
+                                imageVector        = Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.search_clear),
+                            )
+                        }
+                    }
+                },
+            )
+        }
     }
+}
 
-    val pagerState = rememberPagerState { SearchPage.entries.size }
-    val listStates = SearchPage.entries.map { rememberLazyListState() }
-    // A new query starts every page at its top — but a re-entry (popping back from an album) keeps where the user
-    // was: the guard is saveable, so it survives the save / restore that brings the scroll offsets back.
-    var lastResetQuery by rememberSaveable { mutableStateOf<String?>(null) }
+/**
+ * The Search tab's content, under the library bar and its field: nothing while the field is blank (the
+ * placeholder says what to do); once something is typed, Lyra's result pages — a [PrimaryTabRow] (Tracks / Albums
+ * / Artists / Playlists) pinned at the top, its indicator following a [HorizontalPager] of one list per kind. A
+ * track plays the results from there; an album, artist or playlist opens its detail entry (its art flying into
+ * the hero); a long-press on a track opens its menu. Dragging a list drops the keyboard.
+ *
+ * Every list hangs the library bar's [nestedScrollConnection] (so the large bar collapses over results as over
+ * any tab), starts [BarContentGap] under a [TopBarFade] seam, and ends with the entry's bottom room
+ * ([BottomFadeSpacer]) under the [BottomFadeScrim]. The whole page sits above the keyboard (`imePadding()`; the
+ * navigation suite consumed its bar's height, so only the keyboard's part above the bar is owed).
+ */
+@Composable
+fun SearchPage(
+    viewModel             : SearchViewModel,
+    state                 : SearchPageState,
+    nestedScrollConnection: NestedScrollConnection,
+    paneColor             : Color,
+    onOpenAlbum           : (TrackKey) -> Unit,
+    onOpenArtist          : (TrackKey) -> Unit,
+    onOpenPlaylist        : (Long) -> Unit,
+    modifier              : Modifier = Modifier,
+) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val results by viewModel.results.collectAsStateWithLifecycle()
+    val queryBlank by remember(state) { derivedStateOf { state.query.text.isBlank() } }
+
+    // A new query starts every page at its top; coming back to the same query keeps where the user was.
     LaunchedEffect(results?.query) {
-        val shown = results?.query ?: return@LaunchedEffect
-        if (shown == lastResetQuery) return@LaunchedEffect
-        lastResetQuery = shown
-        listStates.forEach { it.requestScrollToItem(0) }
+        val shown = results?.query
+        if (!searchPagesNeedReset(shown, state.lastResetQuery)) return@LaunchedEffect
+        state.lastResetQuery = shown
+        state.lists.forEach { it.requestScrollToItem(0) }
     }
 
     // Dragging the results drops the keyboard: a real vertical drag (not a fling, not the IME's own relocation),
     // once per gesture while the field holds focus. Observes, never consumes.
-    val fieldFocused = remember { mutableStateOf(false) }
-    val dismissImeOnScroll = remember(focusManager, keyboard) {
+    val dismissImeOnScroll = remember(state, focusManager, keyboard) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (fieldFocused.value && source == NestedScrollSource.UserInput && available.y != 0f) {
-                    focusManager.clearFocus(force = true)
-                    keyboard?.hide()
+                if (state.fieldFocused && source == NestedScrollSource.UserInput && available.y != 0f) {
+                    state.releaseField(focusManager, keyboard)
                 }
                 return Offset.Zero
             }
         }
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(background)
-            .horizontalSystemBarsPadding(),
-    ) {
+    Box(modifier = modifier.fillMaxSize().imePadding()) {
         val shown = results
-        if (queryBlank) {
-            Text(
-                text      = stringResource(R.string.search_hint),
-                style     = MaterialTheme.typography.bodyMedium,
-                color     = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier  = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .imePadding()
-                    .padding(top = SearchBarBlockHeight + 16.dp, start = 24.dp, end = 24.dp),
-            )
-        } else if (shown != null) {
-            SearchResultPages(
-                results            = shown,
-                pagerState         = pagerState,
-                listStates         = listStates,
-                viewModel          = viewModel,
-                imeDismissal       = dismissImeOnScroll,
-                onLeave            = { keyboard?.hide() },
-                onOpenAlbum        = onOpenAlbum,
-                onOpenArtist       = onOpenArtist,
-                onOpenPlaylist     = onOpenPlaylist,
-                topPadding         = SearchBarBlockHeight + SearchTabRowHeight + SearchTabRowGap,
-            )
+        if (!queryBlank && shown != null) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                SearchTabRow(pagerState = state.pager, paneColor = paneColor)
+                Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                    SearchResultPages(
+                        results                = shown,
+                        state                  = state,
+                        viewModel              = viewModel,
+                        nestedScrollConnection = nestedScrollConnection,
+                        imeDismissal           = dismissImeOnScroll,
+                        onLeave                = { state.releaseField(focusManager, keyboard) },
+                        onOpenAlbum            = onOpenAlbum,
+                        onOpenArtist           = onOpenArtist,
+                        onOpenPlaylist         = onOpenPlaylist,
+                    )
+                    TopBarFade(paneColor = paneColor, modifier = Modifier.align(Alignment.TopCenter))
+                    BottomFadeScrim(color = paneColor)
+                }
+            }
         }
-
-        BottomFadeScrim(color = background)
-
-        // The top scrim: opaque down to the bottom of whatever floats there (the bar, plus the tab row while there
-        // are results), then fading over a short tail, so rows dissolve into the floating controls.
-        val opaqueHeight = SearchBarBlockHeight + if (queryBlank) 0.dp else SearchTabRowHeight
-        TopScrim(opaqueHeight = opaqueHeight, color = background)
-
-        SearchInputBar(
-            queryState     = queryState,
-            focusRequester = focusRequester,
-            onBack         = { keyboard?.hide(); haptics.confirm(); onBack() },
-            // Clearing starts the next query, so the field is left focused with the keyboard up from either
-            // state the ✕ can be tapped in (unfocused, or focused after the keyboard was swiped away).
-            onClear        = {
-                haptics.press()
-                queryState.clearText()
-                focusRequester.requestFocus()
-                keyboard?.show()
-            },
-            onSearch       = { keyboard?.hide() },
-            onFocusChanged = { fieldFocused.value = it },
-            modifier       = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(start = SearchBarSideMargin, end = SearchBarSideMargin, top = SearchBarTopMargin)
-                .searchBarSharedBounds(),
-        )
-
-        if (!queryBlank) {
-            SearchTabRow(
-                pagerState = pagerState,
-                modifier   = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = SearchBarBlockHeight),
-            )
-        }
-    }
-
-    // `rememberSaveable` so the flag survives the save / restore a pop performs: popping back here from a
-    // later destination composes Search afresh, and must not throw the keyboard up over a typed query.
-    var autoFocused by rememberSaveable { mutableStateOf(false) }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(Unit) {
-        val reEntry = autoFocused
-        if (reEntry && queryState.text.isNotBlank()) return@LaunchedEffect
-        autoFocused = true
-        lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
-        focusRequester.requestFocus()
     }
 }
 
 /**
- * The results: one [LazyColumn] per [SearchPage] in a [HorizontalPager], so the kinds can be swiped as well as
- * tapped. The pager's own snap IS the swap (gesture-driven, not a content transition). Each list starts under the
- * floating bar and tab row ([topPadding], under the status bar) and ends with the bottom room for the fade and
- * the player surface. [onLeave] drops the keyboard before a result opens or plays something.
+ * The results: one [LazyColumn] per [ResultKind] in a [HorizontalPager], so the kinds can be swiped as well as
+ * tapped. The pager's own snap IS the swap (gesture-driven, not a content transition). [onLeave] drops the
+ * keyboard before a result opens or plays something.
+ *
+ * The bar's connection hangs on each LIST, inside the pager: a list's vertical scroll collapses the bar, while the
+ * pager's own horizontal flings never reach it.
  */
 @Composable
 private fun SearchResultPages(
-    results       : SearchResults,
-    pagerState    : PagerState,
-    listStates    : List<LazyListState>,
-    viewModel     : SearchViewModel,
-    imeDismissal  : NestedScrollConnection,
-    onLeave       : () -> Unit,
-    onOpenAlbum   : (TrackKey) -> Unit,
-    onOpenArtist  : (TrackKey) -> Unit,
-    onOpenPlaylist: (Long) -> Unit,
-    topPadding    : Dp,
+    results               : SearchResults,
+    state                 : SearchPageState,
+    viewModel             : SearchViewModel,
+    nestedScrollConnection: NestedScrollConnection,
+    imeDismissal          : NestedScrollConnection,
+    onLeave               : () -> Unit,
+    onOpenAlbum           : (TrackKey) -> Unit,
+    onOpenArtist          : (TrackKey) -> Unit,
+    onOpenPlaylist        : (Long) -> Unit,
 ) {
     val currentTrack by rememberCurrentTrackKey(viewModel.playerState)
     val menu = rememberTrackMenuActions(viewModel.player, onGoToAlbum = onOpenAlbum, onGoToArtist = onOpenArtist)
     val artistFallback = stringResource(R.string.library_unknown_artist)
     val noResults = stringResource(R.string.search_no_results, results.query)
-    val bottomRoom = LocalPlayerSurfaceInset.current
 
-    Box(modifier = Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
-        HorizontalPager(
-            state                   = pagerState,
-            modifier                = Modifier.fillMaxSize().nestedScroll(imeDismissal),
-            beyondViewportPageCount = 0,
-        ) { page ->
-            LazyColumn(
-                state          = listStates[page],
-                modifier       = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = topPadding),
-            ) {
-                when (SearchPage.entries[page]) {
-                    SearchPage.TRACKS    -> if (results.tracks.isEmpty()) noResultsItem(noResults) else {
-                        itemsIndexed(
-                            items       = results.tracks,
-                            key         = { _, track -> trackKeyOf(track) },
-                            contentType = { _, _ -> "track" },
-                        ) { index, track ->
-                            TrackRowWithMenu(
-                                track          = track,
-                                artistFallback = artistFallback,
-                                isCurrent      = track.key == currentTrack,
-                                onPlay         = { onLeave(); viewModel.player.playFrom(results.tracks, index) },
-                                actions        = menu,
-                            )
-                        }
-                    }
-                    SearchPage.ALBUMS    -> if (results.albums.isEmpty()) noResultsItem(noResults) else {
-                        items(results.albums, key = { it.key.mediaId }, contentType = { "album" }) { album ->
-                            AlbumListCard(
-                                album             = album,
-                                onClick           = { onLeave(); onOpenAlbum(album.key) },
-                                artSharedModifier = Modifier.libraryArtSharedBounds(libraryArtKey(album.key)),
-                            )
-                        }
-                    }
-                    SearchPage.ARTISTS   -> if (results.artists.isEmpty()) noResultsItem(noResults) else {
-                        items(results.artists, key = { it.key.mediaId }, contentType = { "artist" }) { artist ->
-                            ArtistListCard(
-                                artist            = artist,
-                                onClick           = { onLeave(); onOpenArtist(artist.key) },
-                                artSharedModifier = Modifier.libraryArtSharedBounds(libraryArtKey(artist.key)),
-                            )
-                        }
-                    }
-                    SearchPage.PLAYLISTS -> if (results.playlists.isEmpty()) noResultsItem(noResults) else {
-                        items(results.playlists, key = { it.id }, contentType = { "playlist" }) { playlist ->
-                            PlaylistListCard(
-                                playlist          = playlist,
-                                onClick           = { onLeave(); onOpenPlaylist(playlist.id) },
-                                onPlay            = { onLeave(); viewModel.playPlaylist(playlist.id) },
-                                artSharedModifier = Modifier.libraryArtSharedBounds(playlistArtKey(playlist.id)),
-                            )
-                        }
+    HorizontalPager(
+        state                   = state.pager,
+        modifier                = Modifier.fillMaxSize().nestedScroll(imeDismissal),
+        beyondViewportPageCount = 0,
+    ) { page ->
+        LazyColumn(
+            state          = state.lists[page],
+            modifier       = Modifier.fillMaxSize().nestedScroll(nestedScrollConnection),
+            contentPadding = PaddingValues(top = BarContentGap),
+        ) {
+            when (ResultKind.entries[page]) {
+                ResultKind.TRACKS    -> if (results.tracks.isEmpty()) noResultsItem(noResults) else {
+                    itemsIndexed(
+                        items       = results.tracks,
+                        key         = { _, track -> trackKeyOf(track) },
+                        contentType = { _, _ -> "track" },
+                    ) { index, track ->
+                        TrackRowWithMenu(
+                            track          = track,
+                            artistFallback = artistFallback,
+                            isCurrent      = track.key == currentTrack,
+                            onPlay         = { onLeave(); viewModel.player.playFrom(results.tracks, index) },
+                            actions        = menu,
+                        )
                     }
                 }
-                item(key = RESULTS_BOTTOM_KEY, contentType = RESULTS_BOTTOM_KEY) { BottomFadeSpacer(extra = bottomRoom) }
+                ResultKind.ALBUMS    -> if (results.albums.isEmpty()) noResultsItem(noResults) else {
+                    items(results.albums, key = { it.key.mediaId }, contentType = { "album" }) { album ->
+                        AlbumListCard(
+                            album             = album,
+                            onClick           = { onLeave(); onOpenAlbum(album.key) },
+                            artSharedModifier = Modifier.libraryArtSharedBounds(libraryArtKey(album.key)),
+                        )
+                    }
+                }
+                ResultKind.ARTISTS   -> if (results.artists.isEmpty()) noResultsItem(noResults) else {
+                    items(results.artists, key = { it.key.mediaId }, contentType = { "artist" }) { artist ->
+                        ArtistListCard(
+                            artist            = artist,
+                            onClick           = { onLeave(); onOpenArtist(artist.key) },
+                            artSharedModifier = Modifier.libraryArtSharedBounds(libraryArtKey(artist.key)),
+                        )
+                    }
+                }
+                ResultKind.PLAYLISTS -> if (results.playlists.isEmpty()) noResultsItem(noResults) else {
+                    items(results.playlists, key = { it.id }, contentType = { "playlist" }) { playlist ->
+                        PlaylistListCard(
+                            playlist          = playlist,
+                            onClick           = { onLeave(); onOpenPlaylist(playlist.id) },
+                            onPlay            = { onLeave(); viewModel.playPlaylist(playlist.id) },
+                            artSharedModifier = Modifier.libraryArtSharedBounds(playlistArtKey(playlist.id)),
+                        )
+                    }
+                }
             }
+            // The entry's bottom room (the fade, plus the mini bar's room while it shows), so the last row can
+            // scroll clear of both — the same insets the scrim spans.
+            item(key = RESULTS_BOTTOM_KEY, contentType = RESULTS_BOTTOM_KEY) { BottomFadeSpacer() }
         }
     }
 }
@@ -379,46 +440,21 @@ private fun LazyListScope.noResultsItem(text: String) {
 }
 
 /**
- * The top scrim: [color] held opaque over the status bar and [opaqueHeight] below it, fading out over
- * [TopScrimTail]. No pointer input, so drags start on the rows under it.
- */
-@Composable
-private fun TopScrim(opaqueHeight: Dp, color: Color) {
-    Box(modifier = Modifier.fillMaxWidth()) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(color)
-                .statusBarsPadding()
-                .height(opaqueHeight),
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(top = opaqueHeight)
-                .height(TopScrimTail)
-                .background(Brush.verticalGradient(listOf(color, Color.Transparent))),
-        )
-    }
-}
-
-/**
- * The result-kind tabs — Lyra's: a Material 3 [PrimaryTabRow] floating over the results, transparent (the top
- * scrim shows through) and without a divider (it would draw a hard line where the scrim turns transparent). The
- * selected tab is the PAGER's current page, so it flips mid-swipe, and the indicator follows the pager per frame
- * ([pagerTrackingIndicator]). A tap pages there on the finite spec.
+ * The result-kind tabs — Lyra's: a Material 3 [PrimaryTabRow] pinned above the pages in the pane colour, without
+ * a divider (the [TopBarFade] below it is the seam). The selected tab is the PAGER's current page, so it flips
+ * mid-swipe, and the indicator follows the pager per frame ([pagerTrackingIndicator]). A tap pages there on the
+ * finite spec.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SearchTabRow(pagerState: PagerState, modifier: Modifier = Modifier) {
+private fun SearchTabRow(pagerState: PagerState, paneColor: Color, modifier: Modifier = Modifier) {
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val selectedIndex = pagerState.currentPage
     PrimaryTabRow(
         selectedTabIndex = selectedIndex,
         modifier         = modifier,
-        containerColor   = Color.Transparent,
+        containerColor   = paneColor,
         // `width = Dp.Unspecified` is mandatory — `PrimaryIndicator`'s default is a 24dp stub.
         indicator        = {
             TabRowDefaults.PrimaryIndicator(
@@ -428,7 +464,7 @@ private fun SearchTabRow(pagerState: PagerState, modifier: Modifier = Modifier) 
         },
         divider          = {},
     ) {
-        SearchPage.entries.forEachIndexed { index, page ->
+        ResultKind.entries.forEachIndexed { index, page ->
             Tab(
                 selected               = index == selectedIndex,
                 onClick                = {
@@ -444,63 +480,5 @@ private fun SearchTabRow(pagerState: PagerState, modifier: Modifier = Modifier) 
                 unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-    }
-}
-
-/**
- * The floating field: a `SearchBarDefaults.InputField` inside a stadium [Surface] in `surfaceContainerHigh` with a
- * small shadow, laid out at exactly [SearchBarHeight] — the morph's geometry assumes that height.
- *
- * The non-deprecated `InputField` needs a `SearchBarState`; it is created already EXPANDED and left alone, because
- * nothing here ever expands into a full-screen search.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SearchInputBar(
-    queryState    : TextFieldState,
-    focusRequester: FocusRequester,
-    onBack        : () -> Unit,
-    onClear       : () -> Unit,
-    onSearch      : () -> Unit,
-    onFocusChanged: (Boolean) -> Unit,
-    modifier      : Modifier = Modifier,
-) {
-    val searchBarState = rememberSearchBarState(initialValue = SearchBarValue.Expanded)
-    Surface(
-        modifier        = modifier.fillMaxWidth().height(SearchBarHeight),
-        shape           = CircleShape,
-        color           = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shadowElevation = 3.dp,
-    ) {
-        SearchBarDefaults.InputField(
-            textFieldState = queryState,
-            searchBarState = searchBarState,
-            onSearch       = { onSearch() },
-            modifier       = Modifier
-                .fillMaxWidth()
-                .focusRequester(focusRequester)
-                .onFocusChanged { onFocusChanged(it.isFocused) },
-            placeholder    = { Text(stringResource(R.string.search_placeholder)) },
-            leadingIcon    = {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector        = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = stringResource(R.string.nav_back),
-                    )
-                }
-            },
-            trailingIcon   = if (queryState.text.isNotBlank()) {
-                {
-                    IconButton(onClick = onClear) {
-                        Icon(
-                            imageVector        = Icons.Filled.Close,
-                            contentDescription = stringResource(R.string.search_clear),
-                        )
-                    }
-                }
-            } else {
-                null
-            },
-        )
     }
 }

@@ -160,6 +160,42 @@ class PlexConnectionPickerTest {
     }
 
     @Test
+    fun `every pick that lands is heard - the first, and a re-pick on the same connection`() = runTest {
+        var generation = 0L
+        val heard = mutableListOf<String>()
+        val picker = PlexConnectionPicker(
+            owned = true,
+            connections = owned,
+            prober = FakeProber(mapOf(domain to (0L to PlexProbeResult.OK))),
+            networkGeneration = { generation },
+            onPicked = { heard += it.uri },
+        )
+        assertEquals(emptyList(), heard)
+        picker.current()
+        assertEquals(listOf(domain), heard)
+        // A kept pick is not a new one.
+        picker.current()
+        assertEquals(listOf(domain), heard)
+        // The network moved: the re-pick lands on the same connection and is heard again (art re-resolves).
+        generation = 1
+        picker.current()
+        assertEquals(listOf(domain, domain), heard)
+    }
+
+    @Test
+    fun `a pick that fails is not heard`() = runTest {
+        var heard = 0
+        val picker = PlexConnectionPicker(
+            owned = true,
+            connections = owned,
+            prober = FakeProber(emptyMap()),
+            onPicked = { heard++ },
+        )
+        assertFailsWith<ProviderException> { picker.current() }
+        assertEquals(0, heard)
+    }
+
+    @Test
     fun `a failed call forgets the pick`() = runTest {
         val prober = FakeProber(mapOf(domain to (0L to PlexProbeResult.OK)))
         val picker = PlexConnectionPicker(owned = true, connections = owned, prober = prober)

@@ -36,15 +36,22 @@ import com.crsmthw.sheliak.util.confirm
  */
 private val CardReservedChrome = 400.dp
 
+/** The card's side padding around its content. */
+private val CardHorizontalPadding = 20.dp
+
+/** The art area never shrinks below this, however short the card's cap. */
+private val CardMinArtHeight = 60.dp
+
 /**
  * The full player's anatomy fitted to the pop-out card (Lyra's PlayerCardContent): a header (close · "Now
- * playing" · full screen), the art — the `"album-art"` shared element on the card's own visibility scope — sized
- * to whatever height the card's cap leaves, the title block, the seek bar, the quality chip, the transport row
- * and the action row with the reserved Output slot. The background is the art's edge colour fading into the
- * card colour (DESIGN §4).
+ * playing" · full screen), the art carousel ([AlbumArtCarousel] — its playing item is the `"album-art"` shared
+ * element on the card's own visibility scope) sized to whatever height the card's cap leaves, the title block, the
+ * wavy seek bar, the quality chip, the transport row and the action row with the reserved Output slot. The
+ * background is the art's edge colour fading into the card colour (DESIGN §4).
  *
  * @param visibilityScope the panel's `AnimatedVisibility`, the scope the art morphs on (mini bar ↔ card, card ↔
  *   full player).
+ * @param artMayMatch the host's gate on the art's `"album-art"` registration.
  */
 @Composable
 fun PlayerCardContent(
@@ -52,6 +59,7 @@ fun PlayerCardContent(
     state          : PlayerState,
     tints          : PlayerTints,
     visibilityScope: AnimatedVisibilityScope?,
+    artMayMatch    : Boolean,
     onClose        : () -> Unit,
     onFullScreen   : () -> Unit,
     onOpenQueue    : () -> Unit,
@@ -63,17 +71,15 @@ fun PlayerCardContent(
     val track   = state.track
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        // The art takes what the card's height cap leaves after the chrome, never more than the width: it
-        // shrinks instead of making the card scroll.
-        val artSize = minOf(
-            maxWidth - 40.dp,
-            (maxHeight - CardReservedChrome).coerceAtLeast(60.dp),
-        )
+        // The art area takes what the card's height cap leaves after the chrome, never more than the width: the
+        // art shrinks instead of making the card scroll. The carousel fits its square centre art into it.
+        val artAreaWidth  = maxWidth - CardHorizontalPadding * 2
+        val artAreaHeight = (maxHeight - CardReservedChrome).coerceAtLeast(CardMinArtHeight)
         Column(
             modifier            = Modifier
                 .fillMaxWidth()
                 .background(Brush.verticalGradient(listOf(cardTop, cardBg)))
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = CardHorizontalPadding)
                 .padding(bottom = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -94,13 +100,14 @@ fun PlayerCardContent(
                 }
             }
 
-            SwipeableAlbumArt(
-                track           = track,
+            AlbumArtCarousel(
+                queue           = state.queue,
                 queueIndex      = state.queueIndex,
                 visibilityScope = visibilityScope,
-                size            = artSize,
-                onNext          = player::next,
-                onPrevious      = player::previous,
+                artMayMatch     = artMayMatch,
+                availableWidth  = artAreaWidth,
+                availableHeight = artAreaHeight,
+                onSeekTo        = player::seekToQueueIndex,
             )
 
             Spacer(Modifier.height(16.dp))
@@ -115,6 +122,7 @@ fun PlayerCardContent(
                 player     = player,
                 trackKey   = track?.key,
                 durationMs = state.durationMs,
+                isPlaying  = state.isPlaying,
                 tint       = tints.surfaceAccent,
                 modifier   = Modifier.fillMaxWidth(),
             )

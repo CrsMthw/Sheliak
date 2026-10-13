@@ -4,7 +4,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -14,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import coil3.compose.AsyncImage
+import coil3.memory.MemoryCache
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.crsmthw.sheliak.domain.ArtRef
@@ -31,8 +37,10 @@ fun interface ArtResolver {
 
 /**
  * The app's [ArtResolver], provided once at the root of the shell (above the player surface, so the mini bar and
- * the pop-out see it too). The default resolves nothing, so a preview or a surface outside the shell shows
- * placeholder art instead of failing.
+ * the pop-out see it too). The root re-creates it whenever the provider list changes or any provider's
+ * `artVersion` moves (a connection picked, a token arrived, the network changed), so every [Artwork] resolves its
+ * cover again. The default resolves nothing, so a preview or a surface outside the shell shows placeholder art
+ * instead of failing.
  */
 val LocalArtResolver = staticCompositionLocalOf<ArtResolver> { ArtResolver { _, _ -> null } }
 
@@ -49,6 +57,14 @@ val LocalArtResolver = staticCompositionLocalOf<ArtResolver> { ArtResolver { _, 
  * sharp at every end of a morph: the mini bar, the pop-out card and the full player all pass the player's size, so
  * the bar's bitmap is never drawn scaled up through the "album-art" flight.
  *
+ * Re-resolving (M1 fix round 1, "covers must appear without switching screens"): the model is remembered on
+ * (resolver, art, sizePx), so a new resolver asks the provider again. A CHANGED model (a URL on the connection
+ * that was just picked) is a new Coil request; while it loads, the image last shown stays up as its placeholder,
+ * so a cover never blanks. An UNCHANGED model is the same request to Coil — fine for a cover that loaded, but a
+ * failed one would stay failed — so a load that failed is retried, and only that, once per resolver change since
+ * the attempt started — also when the failure lands AFTER the change (a bump while the load was in flight)
+ * ([ArtAttempts], [ArtRetry]).
+ *
  * @param contentDescription null where the title next to the art already says what it is (rows, cards).
  */
 @Composable
@@ -60,9 +76,9 @@ fun Artwork(
     shape             : Shape = MaterialTheme.shapes.small,
 ) {
     val resolver = LocalArtResolver.current
-    // Resolved once per (art, size, resolver): the resolver changes only when the providers are rebuilt, which is
-    // exactly when a model that was null (a provider not yet built) can become a URL.
-    val model = remember(art, sizePx, resolver) { art?.let { resolver.model(it, sizePx) } }
+    val model = remember(resolver, art, sizePx) { art?.let { resolver.model(it, sizePx) } }
+    val load = remember(art, sizePx) { ArtLoad() }
+    SideEffect { load.composed(resolver, model) }
     Box(modifier = modifier.clip(shape)) {
         PlaceholderArt(modifier = Modifier.fillMaxSize())
         if (model != null) {
@@ -71,15 +87,21 @@ fun Artwork(
                 ImageRequest.Builder(context)
                     .data(model)
                     .size(sizePx)
+                    .placeholderMemoryCacheKey(load.shownKey)
                     .crossfade(NavTransitionMillis)
                     .build()
             }
-            AsyncImage(
-                model              = request,
-                contentDescription = contentDescription,
-                contentScale       = ContentScale.Crop,
-                modifier           = Modifier.fillMaxSize(),
-            )
+            // A new attempt is a new painter, and a new painter loads again (Coil caches no failures).
+            key(load.attempt) {
+                AsyncImage(
+                    model              = request,
+                    contentDescription = contentDescription,
+                    contentScale       = ContentScale.Crop,
+                    modifier           = Modifier.fillMaxSize(),
+                    onSuccess          = { success -> load.loaded(success.result.memoryCacheKey) },
+                    onError            = { load.failed(model) },
+                )
+            }
         }
     }
 }
@@ -87,3 +109,95 @@ fun Artwork(
 /** [size] in px for [Artwork]'s `sizePx`: the provider rounds it up to its own bucket. */
 @Composable
 fun artSizePx(size: Dp): Int = with(LocalDensity.current) { size.roundToPx() }
+
+/**
+ * When an [Artwork] loads its cover again — pure, unit-tested in ArtworkRetryTest. Coil's default model equality
+ * compares a request's data and cache keys, so a request equal to the one on screen is the SAME load: a provider
+ * re-resolve that returns the unchanged URL would leave a failed cover failed until it left the screen. So the
+ * attempt moves only when the load of this very model failed AND the resolver changed since that attempt
+ * started; a cover that loaded, or whose model changed (a new request anyway) is left alone — no reload, no flash,
+ * no cache churn.
+ */
+internal object ArtRetry {
+
+    /** The attempt to draw with, given the [attempt] drawn so far and the model whose load last failed. */
+    fun next(attempt: Int, failedModel: Any?, model: Any?, resolverChanged: Boolean): Int =
+        if (resolverChanged && model != null && failedModel == model) attempt + 1 else attempt
+}
+
+/**
+ * One cover's attempts — pure bookkeeping around [ArtRetry], unit-tested in ArtworkRetryTest. An attempt is
+ * anchored to the resolver it STARTED under, not to the last one composed: a bump that lands while the load is
+ * still in flight (the pick landing ~100 ms after the token at a cold start) and a failure that arrives after it
+ * (a busy server timing the transcode out) still retry once. A retry that fails again under the same resolver
+ * stays failed until the next change — never a loop.
+ */
+internal class ArtAttempts {
+    /** The attempt drawn now; the image is keyed on it. */
+    var attempt: Int = 0
+        private set
+
+    private var latest: ArtResolver? = null
+    private var startedUnder: ArtResolver? = null
+    private var startedFor: Any? = null
+    private var failedModel: Any? = null
+
+    /** After a composition with [resolver] and [model]. True when the attempt moved (draw a fresh load). */
+    fun composed(resolver: ArtResolver, model: Any?): Boolean {
+        latest = resolver
+        if (startedUnder == null || model != startedFor) {
+            // A new model is a new request: a new attempt, started under this resolver.
+            startedFor = model
+            startedUnder = resolver
+            failedModel = null
+        }
+        return retryIfDue(model)
+    }
+
+    /** The load of [model] failed. True when the attempt moved (the resolver changed while it loaded). */
+    fun failed(model: Any?): Boolean {
+        failedModel = model
+        return retryIfDue(model)
+    }
+
+    /** The load succeeded. */
+    fun loaded() {
+        failedModel = null
+    }
+
+    private fun retryIfDue(model: Any?): Boolean {
+        val changed = startedUnder != null && startedUnder !== latest
+        val next = ArtRetry.next(attempt, failedModel, model, changed)
+        if (next == attempt) return false
+        attempt = next
+        failedModel = null
+        startedUnder = latest
+        return true
+    }
+}
+
+/** One cover's load state: its [ArtAttempts], the attempt as Compose state, and the last image's cache key. */
+private class ArtLoad {
+    private val attempts = ArtAttempts()
+
+    /** Keys the image; moved by [composed] / [failed] to retry a failed load. */
+    var attempt by mutableIntStateOf(0)
+        private set
+
+    /** The memory-cache key of the image shown last: the next request's placeholder. */
+    var shownKey: MemoryCache.Key? = null
+        private set
+
+    fun composed(resolver: ArtResolver, model: Any?) {
+        if (attempts.composed(resolver, model)) attempt = attempts.attempt
+    }
+
+    fun failed(model: Any?) {
+        if (attempts.failed(model)) attempt = attempts.attempt
+    }
+
+    fun loaded(key: MemoryCache.Key?) {
+        attempts.loaded()
+        shownKey = key
+    }
+}

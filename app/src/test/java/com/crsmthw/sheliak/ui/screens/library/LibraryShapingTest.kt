@@ -126,33 +126,36 @@ class LibraryShapingTest {
         assertEquals("", metaLine(listOf(null, ""), " · "))
     }
 
-    // ── Carousels ───────────────────────────────────────────────────────────
+    // ── Most played ─────────────────────────────────────────────────────────
 
     @Test
-    fun `no history shows no carousels`() {
-        assertEquals(emptyList(), carouselSections(emptyList(), emptyList()))
+    fun `no history shows no carousel`() {
+        assertEquals(emptyList(), mostPlayedTracks(emptyList()))
     }
 
     @Test
-    fun `recently played comes before most played`() {
-        val recent = listOf(track("1"))
-        val most = listOf(track("2", playCount = 5))
-        assertEquals(
-            listOf(CarouselKind.RECENTLY_PLAYED, CarouselKind.MOST_PLAYED),
-            carouselSections(recent, most).map { it.kind },
-        )
-    }
-
-    @Test
-    fun `most played drops tracks that were never played`() {
-        val sections = carouselSections(emptyList(), listOf(track("1", playCount = 3), track("2", playCount = 0)))
-        assertEquals(listOf(CarouselKind.MOST_PLAYED), sections.map { it.kind })
-        assertEquals(listOf("1"), sections.single().tracks.map { it.key.itemId })
+    fun `most played drops tracks that were never played and keeps the repository's order`() {
+        val most = listOf(track("1", playCount = 9), track("2", playCount = 0), track("3", playCount = 4))
+        assertEquals(listOf("1", "3"), mostPlayedTracks(most).map { it.key.itemId })
     }
 
     @Test
     fun `a most played list of unplayed tracks shows no carousel`() {
-        assertEquals(emptyList(), carouselSections(emptyList(), listOf(track("1"), track("2"))))
+        assertEquals(emptyList(), mostPlayedTracks(listOf(track("1"), track("2"))))
+    }
+
+    @Test
+    fun `the carousel label is opaque at full size, gone at the smallest, linear between`() {
+        assertEquals(1f, carouselLabelAlpha(size = 400f, minSize = 100f, maxSize = 400f))
+        assertEquals(0f, carouselLabelAlpha(size = 100f, minSize = 100f, maxSize = 400f))
+        assertEquals(0.5f, carouselLabelAlpha(size = 250f, minSize = 100f, maxSize = 400f), 1e-6f)
+    }
+
+    @Test
+    fun `the carousel label clamps outside the range and never divides by zero`() {
+        assertEquals(1f, carouselLabelAlpha(size = 500f, minSize = 100f, maxSize = 400f))
+        assertEquals(0f, carouselLabelAlpha(size = 20f, minSize = 100f, maxSize = 400f))
+        assertEquals(1f, carouselLabelAlpha(size = 300f, minSize = 300f, maxSize = 300f))
     }
 
     // ── List keys ───────────────────────────────────────────────────────────
@@ -287,5 +290,19 @@ class LibraryShapingTest {
         repeat(100) { assertTrue(shuffleStartIndex(5, random) in 0 until 5) }
         assertEquals(0, shuffleStartIndex(1, random))
         assertEquals(0, shuffleStartIndex(0, random))
+    }
+
+    // ── Load gate ───────────────────────────────────────────────────────────
+
+    @Test
+    fun `no bottom room while nothing is known, so rows land at index 0 and the list opens at the top`() {
+        assertFalse(emitsBottomRoom(LibraryEmptyKind.NOTHING_YET))
+    }
+
+    @Test
+    fun `the bottom room follows rows and empty cards`() {
+        assertTrue(emitsBottomRoom(null))
+        assertTrue(emitsBottomRoom(LibraryEmptyKind.NO_SOURCE))
+        assertTrue(emitsBottomRoom(LibraryEmptyKind.EMPTY_LIST))
     }
 }

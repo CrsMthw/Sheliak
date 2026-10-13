@@ -16,6 +16,7 @@ import com.crsmthw.sheliak.data.provider.SyncProgress
 import com.crsmthw.sheliak.data.repository.resultOf
 import com.crsmthw.sheliak.domain.ArtRef
 import com.crsmthw.sheliak.domain.TrackKey
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -62,7 +63,10 @@ data class PlexInstanceConfig(
 /**
  * One Plex Media Server as a [MusicProvider] (instance id `plex:<machineIdentifier>`). Sync: [PlexSync];
  * playback: [PlexServer.resolvePlayback]; art: [PlexArt]; play reporting: [PlexReporter]. Built by
- * [PlexProviderFactory] — cheaply: nothing here touches the network or the credential store until first used.
+ * [PlexProviderFactory] — cheaply: nothing touches the network until first used, and the server's token is read
+ * on IO right away (never on the building thread), so the first cover URLs do not wait on a credential read in
+ * composition. [artVersion] moves when that token lands and whenever a connection pick lands (and on network
+ * changes), so covers built on a guessed connection are built again on the real one.
  */
 class PlexProvider internal constructor(
     override val instance: ProviderInstance,
@@ -77,6 +81,12 @@ class PlexProvider internal constructor(
     override val capabilities: ProviderCapabilities = CAPABILITIES
 
     override val reporter: PlaybackReporter = PlexReporter(server)
+
+    override val artVersion: StateFlow<Int> get() = server.artVersion
+
+    init {
+        server.preloadToken()
+    }
 
     override suspend fun sync(cursor: SyncCursor?, sink: IndexSink, progress: (SyncProgress) -> Unit): Result<SyncCursor> =
         resultOf {
@@ -95,6 +105,7 @@ class PlexProvider internal constructor(
 
     override fun artModel(ref: ArtRef, sizePx: Int): Any? = server.artModel(ref.path, sizePx)
 
+    /** Deletes this server's secrets; the plex.tv account token is kept ([PlexCredentialRules]). */
     override suspend fun onRemove() = server.forget()
 
     companion object {

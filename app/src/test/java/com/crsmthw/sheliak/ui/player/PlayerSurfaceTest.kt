@@ -106,6 +106,88 @@ class PlayerSurfaceTest {
         assertEquals(1f, placement.widthFraction)
     }
 
+    // ── surfaceSwapFor (crossing the pop-out line) ──────────────────────────
+
+    @Test
+    fun `the window becoming able to host the card swaps an open full player for it`() {
+        assertEquals(
+            SurfaceSwap.PlayerToCard,
+            surfaceSwapFor(canShowPanelBefore = false, canShowPanelNow = true, playerOnTop = true, hasTrack = true, cardOverScreen = false),
+        )
+    }
+
+    @Test
+    fun `the window losing the card swaps an open card for the full player`() {
+        assertEquals(
+            SurfaceSwap.CardToPlayer,
+            surfaceSwapFor(canShowPanelBefore = true, canShowPanelNow = false, playerOnTop = false, hasTrack = true, cardOverScreen = true),
+        )
+    }
+
+    @Test
+    fun `no change of the pop-out rule swaps nothing, whatever is open`() {
+        assertEquals(
+            SurfaceSwap.None,
+            surfaceSwapFor(canShowPanelBefore = true, canShowPanelNow = true, playerOnTop = true, hasTrack = true, cardOverScreen = false),
+        )
+        assertEquals(
+            SurfaceSwap.None,
+            surfaceSwapFor(canShowPanelBefore = false, canShowPanelNow = false, playerOnTop = false, hasTrack = true, cardOverScreen = true),
+        )
+    }
+
+    @Test
+    fun `gaining the card with no full player on top swaps nothing`() {
+        assertEquals(
+            SurfaceSwap.None,
+            surfaceSwapFor(canShowPanelBefore = false, canShowPanelNow = true, playerOnTop = false, hasTrack = true, cardOverScreen = false),
+        )
+    }
+
+    @Test
+    fun `an empty player is never swapped for a card`() {
+        assertEquals(
+            SurfaceSwap.None,
+            surfaceSwapFor(canShowPanelBefore = false, canShowPanelNow = true, playerOnTop = true, hasTrack = false, cardOverScreen = false),
+        )
+    }
+
+    @Test
+    fun `losing the card while the full player covers it opens nothing more`() {
+        // The card was hidden under a full player opened from it: the player is already there.
+        assertEquals(
+            SurfaceSwap.None,
+            surfaceSwapFor(canShowPanelBefore = true, canShowPanelNow = false, playerOnTop = true, hasTrack = true, cardOverScreen = false),
+        )
+    }
+
+    @Test
+    fun `the swap follows the pop-out rule, not the width class - folded landscape is wide but cannot host the card`() {
+        // Folded portrait (compact) -> folded landscape (medium width, short): the pop-out rule stays false.
+        val before = popOutAllowed(WindowWidth.Compact, 900f)
+        val now = popOutAllowed(WindowWidth.Medium, 380f)
+        assertEquals(
+            SurfaceSwap.None,
+            surfaceSwapFor(canShowPanelBefore = before, canShowPanelNow = now, playerOnTop = true, hasTrack = true, cardOverScreen = false),
+        )
+    }
+
+    // ── "album-art" match gating ────────────────────────────────────────────
+
+    @Test
+    fun `a full player counts while on top and while it is still leaving`() {
+        assertTrue(fullPlayerPresent(topIsPlayer = true, composedFullPlayers = 0))
+        assertTrue(fullPlayerPresent(topIsPlayer = false, composedFullPlayers = 1))
+        assertFalse(fullPlayerPresent(topIsPlayer = false, composedFullPlayers = 0))
+    }
+
+    @Test
+    fun `a floating surface's art may match only while a partner exists`() {
+        assertTrue(floatingArtMayMatch(fullPlayerPresent = true, otherSurfaceInTransition = false))
+        assertTrue(floatingArtMayMatch(fullPlayerPresent = false, otherSurfaceInTransition = true))
+        assertFalse(floatingArtMayMatch(fullPlayerPresent = false, otherSurfaceInTransition = false))
+    }
+
     // ── unwindMillis ────────────────────────────────────────────────────────
 
     @Test

@@ -15,6 +15,14 @@
     <string name="sources_remove_body">Its tracks, albums and playlists leave your library. Nothing changes on the server.</string>
     <string name="sources_cancel">Cancel</string>
     <string name="sources_remove_failed">Couldn’t remove the source</string>
+    <!-- The Plex account section, shown while a plex.tv account token is stored on the phone -->
+    <string name="sources_section_account">Plex account</string>
+    <string name="sources_forget_account">Forget Plex account</string>
+    <string name="sources_forget_account_desc">Signed in on this phone, so servers you add skip the sign-in</string>
+    <string name="sources_forget_account_title">Forget your Plex account?</string>
+    <string name="sources_forget_account_body">Sheliak signs out of Plex on this phone. Servers you’ve added keep working; adding another one asks you to sign in again.</string>
+    <string name="sources_forget_account_confirm">Forget</string>
+    <string name="sources_forget_account_failed">Couldn’t forget the Plex account</string>
     <string name="sources_ok">OK</string>
     <!-- One source's second line: %1$s is its track count ("1,204 tracks"), %2$s its sync status -->
     <string name="sources_row_summary">%1$s · %2$s</string>
@@ -41,12 +49,11 @@
     <string name="plex_setup_title">Add a Plex server</string>
     <string name="plex_retry">Retry</string>
     <string name="plex_checking_account">Checking your Plex account…</string>
-    <string name="plex_pin_title">Sign in to Plex</string>
-    <string name="plex_pin_requesting">Getting a sign-in code…</string>
-    <string name="plex_pin_body">Open plex.tv and sign in. If it asks for a code, enter this one:</string>
-    <string name="plex_pin_open">Open plex.tv</string>
-    <string name="plex_pin_waiting">Waiting for you to sign in… Come back here when plex.tv says you’re done.</string>
-    <string name="plex_pin_no_browser">No browser is installed to open plex.tv.</string>
+    <!-- Sign-in step: a headline, ONE button that opens plex.tv in a Custom Tab, then a still waiting line. -->
+    <string name="plex_sign_in_title">Sign in with your Plex account</string>
+    <string name="plex_sign_in">Sign in with Plex</string>
+    <string name="plex_sign_in_waiting">Waiting for plex.tv…</string>
+    <string name="plex_sign_in_no_browser">No browser is installed to open plex.tv.</string>
     <string name="plex_servers_title">Choose a server</string>
     <string name="plex_servers_loading">Looking for your servers…</string>
     <string name="plex_servers_empty">There are no Plex servers on this account.</string>

@@ -9,9 +9,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
 /*
- * The pure shaping the library screens do on top of the repository's lists — disc grouping, running times,
- * the carousels, list keys, the sync count and the shared-element keys — kept free of Compose and Android so
- * every rule is unit-tested (LibraryShapingTest). The only Compose import is the `@Immutable` marker.
+ * The pure shaping the library screens do on top of the repository's lists — disc grouping, running times, the
+ * Most played carousel, list keys, the sync count, the empty states, the lazy lists' load gate and the
+ * shared-element keys — kept free of Compose and Android so every rule is unit-tested (LibraryShapingTest). The
+ * only Compose import is the `@Immutable` marker.
  */
 
 // ── Album rows ──────────────────────────────────────────────────────────────
@@ -70,25 +71,25 @@ fun totalDurationMs(tracks: List<Track>): Long = tracks.sumOf { it.durationMs.co
 fun metaLine(parts: List<String?>, separator: String): String =
     parts.filterNot { it.isNullOrBlank() }.joinToString(separator)
 
-// ── Carousels ───────────────────────────────────────────────────────────────
-
-/** The two Tracks-tab carousels, in display order. */
-enum class CarouselKind { RECENTLY_PLAYED, MOST_PLAYED }
-
-/** One carousel and its tracks (never empty). */
-@Immutable
-data class CarouselSection(val kind: CarouselKind, val tracks: List<Track>)
+// ── Most played ─────────────────────────────────────────────────────────────
 
 /**
- * The carousels to show above All tracks: Recently played, then Most played, each only when it has something —
- * so a library nobody has played yet shows neither and the list starts right under the bar. Most played keeps
- * only tracks that have actually been played (the repository orders by play count, which pads a short history
- * with never-played tracks).
+ * The Tracks tab's one carousel, "Most played": the tracks that have actually been played, highest play count
+ * first (the repository's order, kept). Empty — no carousel — on a library nobody has played yet, so the list
+ * starts right under the bar. ("Recently played" left the Tracks page in M1 fix round 1; the repository keeps
+ * `recentlyPlayed` for Android Auto and a later entry point.)
  */
-fun carouselSections(recentlyPlayed: List<Track>, mostPlayed: List<Track>): List<CarouselSection> = buildList {
-    if (recentlyPlayed.isNotEmpty()) add(CarouselSection(CarouselKind.RECENTLY_PLAYED, recentlyPlayed))
-    val played = mostPlayed.filter { it.playCount > 0 }
-    if (played.isNotEmpty()) add(CarouselSection(CarouselKind.MOST_PLAYED, played))
+fun mostPlayedTracks(mostPlayed: List<Track>): List<Track> = mostPlayed.filter { it.playCount > 0 }
+
+/**
+ * The carousel item's label alpha: 1 while the item is at its full (focal) size, fading to 0 as the carousel
+ * shrinks it to its smallest — the M3 carousel's text-label rule, from the item's own `carouselItemDrawInfo`
+ * ([size] between [minSize] and [maxSize], px). A carousel whose items never shrink keeps the label at 1.
+ */
+fun carouselLabelAlpha(size: Float, minSize: Float, maxSize: Float): Float {
+    val range = maxSize - minSize
+    if (range <= 0f) return 1f
+    return ((size - minSize) / range).coerceIn(0f, 1f)
 }
 
 // ── List keys ───────────────────────────────────────────────────────────────
@@ -169,6 +170,17 @@ enum class LibraryEmptyKind {
     /** Sources exist, this list is empty — the "syncing / pull to sync" card. */
     EMPTY_LIST,
 }
+
+// ── Load gate ───────────────────────────────────────────────────────────────
+
+/**
+ * Whether a library list emits its trailing bottom-room item: NOT while nothing is known yet ([emptyKind] is
+ * [LibraryEmptyKind.NOTHING_YET]). A lazy list keeps its scroll anchored to the KEY of its first visible item. If
+ * the bottom room were the list's only item when the rows arrive in front of it, the list would hold on to that
+ * key and open scrolled to the END — M1 fix round 1, item 24, where every detail long enough to scroll opened at
+ * its bottom. With no item at all before the first read, the rows land at index 0 and the list opens at the top.
+ */
+fun emitsBottomRoom(emptyKind: LibraryEmptyKind?): Boolean = emptyKind != LibraryEmptyKind.NOTHING_YET
 
 // ── Shared-element keys ─────────────────────────────────────────────────────
 

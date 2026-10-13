@@ -3,8 +3,10 @@ package com.crsmthw.sheliak.ui.screens.library
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.crsmthw.sheliak.data.db.NormalizedKeys
 import com.crsmthw.sheliak.data.repository.LibraryCounts
 import com.crsmthw.sheliak.data.repository.LibraryRepository
+import com.crsmthw.sheliak.data.repository.SortedRows
 import com.crsmthw.sheliak.data.repository.SourcesRepository
 import com.crsmthw.sheliak.di.AppContainer
 import com.crsmthw.sheliak.domain.Album
@@ -15,29 +17,34 @@ import com.crsmthw.sheliak.domain.Track
 import com.crsmthw.sheliak.domain.TrackKey
 import com.crsmthw.sheliak.player.PlaybackController
 import com.crsmthw.sheliak.player.PlayerStateManager
+import com.crsmthw.sheliak.ui.components.AlphabetIndex
+import com.crsmthw.sheliak.ui.components.alphabetIndexOf
 import com.crsmthw.sheliak.ui.screens.library.detail.AlbumDetailState
 import com.crsmthw.sheliak.ui.screens.library.detail.ArtistDetailState
 import com.crsmthw.sheliak.ui.screens.library.detail.PlaylistDetailState
 import com.crsmthw.sheliak.ui.screens.library.detail.albumDetailFlow
 import com.crsmthw.sheliak.ui.screens.library.detail.artistDetailFlow
 import com.crsmthw.sheliak.ui.screens.library.detail.playlistDetailFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
  * The Library entry: the four tabs' lists over the index (Room flows — a sync batch or a recorded play re-emits
- * them), the counts for the bar's subtitles, the sync progress for the Tracks subtitle, the carousels, and the
- * pull-to-refresh round. Every list is null until its first read lands, so a tab shows nothing rather than an
- * empty state it is about to replace.
+ * them), their alphabet scroller sections, the counts for the bar's subtitles, the sync progress for the Tracks
+ * subtitle, the Most played carousel, and the pull-to-refresh round. Every list is null until its first read
+ * lands, so a tab shows nothing rather than an empty state it is about to replace.
  *
  * Each state is kept alive five seconds past the last collector (a rotation, a quick round trip) and never
  * eagerly. [playerState] is the player's own flow, collected by the screens with the lifecycle only — its
@@ -66,15 +73,42 @@ class LibraryViewModel(
 
     val tracks: StateFlow<List<Track>?> = library.tracks.state(null)
 
-    val albums: StateFlow<List<Album>?> = library.albums.state(null)
+    /** The albums with their sort keys, read once and shared by [albums] and [albumIndex] (one Room query). */
+    private val sortedAlbums: SharedFlow<SortedRows<Album>> = library.albumsSorted.shared()
 
-    val artists: StateFlow<List<Artist>?> = library.artists.state(null)
+    val albums: StateFlow<List<Album>?> = sortedAlbums.map { it.items }.state(null)
+
+    /** The artists with their sort keys, shared by [artists] and [artistIndex]. */
+    private val sortedArtists: SharedFlow<SortedRows<Artist>> = library.artistsSorted.shared()
+
+    val artists: StateFlow<List<Artist>?> = sortedArtists.map { it.items }.state(null)
 
     val playlists: StateFlow<List<Playlist>?> = library.playlists.state(null)
 
-    /** Recently played, then Most played — each only when it has tracks ([carouselSections]). */
-    val carousels: StateFlow<List<CarouselSection>> =
-        combine(library.recentlyPlayed(), library.mostPlayed(), ::carouselSections).state(emptyList())
+    // The alphabet fast scroller's sections, one per list. Built off the main thread from the keys each list is
+    // ordered by: a track's `titleSort`; an album's / artist's index sort key (the provider's own sort title when
+    // it sent one, so "The Beatles" files under B where the list has it); a playlist's normalised title (the
+    // playlists are not ordered alphabetically — Liked Songs first — so their sections keep each letter's FIRST
+    // run, see alphabetIndexOf).
+
+    val trackIndex: StateFlow<AlphabetIndex> =
+        tracks.map { list -> list?.let { rows -> alphabetIndexOf(rows.map(Track::titleSort)) } ?: AlphabetIndex.Empty }
+            .indexState()
+
+    val albumIndex: StateFlow<AlphabetIndex> = sortedAlbums.map { alphabetIndexOf(it.sortKeys) }.indexState()
+
+    val artistIndex: StateFlow<AlphabetIndex> = sortedArtists.map { alphabetIndexOf(it.sortKeys) }.indexState()
+
+    val playlistIndex: StateFlow<AlphabetIndex> =
+        playlists.map { list ->
+            list?.let { rows -> alphabetIndexOf(rows.map { NormalizedKeys.sortKey(it.title) }) } ?: AlphabetIndex.Empty
+        }.indexState()
+
+    /**
+     * The Tracks tab's one carousel, Most played ([mostPlayedTracks]); null until the first read lands, so the tab
+     * waits for it before listing anything. (Recently played left the Tracks page in M1 fix round 1.)
+     */
+    val mostPlayed: StateFlow<List<Track>?> = library.mostPlayed().map(::mostPlayedTracks).state(null)
 
     private val refreshing = MutableStateFlow(false)
 
@@ -116,6 +150,12 @@ class LibraryViewModel(
 
     private fun <T> Flow<T>.state(initial: T): StateFlow<T> =
         stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), initial)
+
+    private fun <T> Flow<T>.shared(): SharedFlow<T> =
+        shareIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), replay = 1)
+
+    private fun Flow<AlphabetIndex>.indexState(): StateFlow<AlphabetIndex> =
+        distinctUntilChanged().flowOn(Dispatchers.Default).state(AlphabetIndex.Empty)
 
     private companion object {
         const val STOP_TIMEOUT_MILLIS = 5_000L

@@ -91,6 +91,10 @@ data class PlexPick(val connection: PlexConnectionInfo?, val unauthorized: Boole
  *
  * When nothing answers, [refresh] may supply fresh connections (a re-fetch of `/resources`); if still nothing
  * answers the call fails with NETWORK, or AUTH when a server answered but refused the token.
+ *
+ * [onPicked] hears every pick that lands — the first one after the process starts, and every re-pick after a
+ * network change, a failed call or new candidates, even when it lands on the same connection — so whatever
+ * was built on a guessed connection (cover URLs) can be built again on the real one.
  */
 class PlexConnectionPicker(
     private val owned: Boolean,
@@ -100,6 +104,7 @@ class PlexConnectionPicker(
     private val networkGeneration: () -> Long = { 0L },
     private val refresh: suspend () -> List<PlexConnectionInfo>? = { null },
     private val timeouts: PlexProbeTimeouts = PlexProbeTimeouts(),
+    private val onPicked: (PlexConnectionInfo) -> Unit = {},
 ) {
     private data class Picked(val connection: PlexConnectionInfo, val generation: Long)
 
@@ -117,6 +122,9 @@ class PlexConnectionPicker(
 
     /** The last pick even if the network changed since — a best guess for non-suspending callers (art). */
     fun lastPicked(): PlexConnectionInfo? = picked?.connection
+
+    /** The connections a pick chooses from now (the setup snapshot, or fresher ones from `/resources`). */
+    fun candidates(): List<PlexConnectionInfo> = candidates
 
     /** The connection to use now, probing if there is no valid pick. */
     suspend fun current(): PlexConnectionInfo {
@@ -161,6 +169,7 @@ class PlexConnectionPicker(
             ProviderException(ProviderError.NETWORK, "No connection to the Plex server answered")
         }
         picked = Picked(found, generation)
+        onPicked(found)
         return found
     }
 

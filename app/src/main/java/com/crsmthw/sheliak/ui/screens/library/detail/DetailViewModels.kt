@@ -43,15 +43,19 @@ data class AlbumDetailState(
     }
 }
 
-/** An artist and their albums, newest first. */
+/**
+ * An artist, their albums newest first, and their tracks album by album (album year newest first, then disc and
+ * track number — `LibraryRepository.artistTracks`).
+ */
 @Immutable
 data class ArtistDetailState(
     val loading: Boolean,
     val artist : Artist?,
     val albums : List<Album>,
+    val tracks : List<Track>,
 ) {
     companion object {
-        val Loading = ArtistDetailState(loading = true, artist = null, albums = emptyList())
+        val Loading = ArtistDetailState(loading = true, artist = null, albums = emptyList(), tracks = emptyList())
     }
 }
 
@@ -75,10 +79,10 @@ fun albumDetailFlow(library: LibraryRepository, key: TrackKey): Flow<AlbumDetail
         AlbumDetailState(loading = false, album = album, tracks = tracks, rows = albumRows(tracks))
     }
 
-/** [key]'s artist and albums, live. */
+/** [key]'s artist, albums and tracks, live. */
 fun artistDetailFlow(library: LibraryRepository, key: TrackKey): Flow<ArtistDetailState> =
-    combine(library.artist(key), library.artistAlbums(key)) { artist, albums ->
-        ArtistDetailState(loading = false, artist = artist, albums = albums)
+    combine(library.artist(key), library.artistAlbums(key), library.artistTracks(key)) { artist, albums, tracks ->
+        ArtistDetailState(loading = false, artist = artist, albums = albums, tracks = tracks)
     }
 
 /** Playlist [id] and its tracks, live. */
@@ -109,7 +113,7 @@ class AlbumDetailViewModel(
     val state: StateFlow<AlbumDetailState> = albumDetailFlow(library, key).screenState(this, AlbumDetailState.Loading)
 }
 
-/** The pushed artist entry. */
+/** The pushed artist entry ([player] / [playerStates] as the album entry's: the artist page plays its tracks). */
 class ArtistDetailViewModel(
     library    : LibraryRepository,
     manager    : PlayerStateManager,

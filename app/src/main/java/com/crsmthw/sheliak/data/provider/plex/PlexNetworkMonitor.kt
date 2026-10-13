@@ -7,6 +7,10 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Build
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -15,6 +19,8 @@ import java.util.concurrent.atomic.AtomicLong
  * their row changes and have no close hook, so a callback per provider would leak one registration per rebuild.
  * [generation] moves whenever the default network changes or is lost; each [PlexConnectionPicker] compares it
  * with the generation its pick was made under and re-probes on a mismatch (Cris: re-pick on network change).
+ * [events] moves on EVERY default-network arrival and loss — the first arrival too (an app started offline gets
+ * one when the network comes) — so art can be resolved again when connectivity changes (`PlexServer.artVersion`).
  *
  * Uses ACCESS_NETWORK_STATE (declared in the merged manifest by WorkManager). If the callback cannot be
  * registered, picks are only redone after a failed call.
@@ -35,6 +41,11 @@ internal object PlexNetworkMonitor {
 
     val generation: Long get() = generationCounter.get()
 
+    private val eventCounter = MutableStateFlow(0L)
+
+    /** Counts every default-network arrival and loss (the first arrival included); see the class comment. */
+    val events: StateFlow<Long> = eventCounter.asStateFlow()
+
     fun start(context: Context) {
         if (!started.compareAndSet(false, true)) return
         val connectivity = context.applicationContext.getSystemService(ConnectivityManager::class.java) ?: return
@@ -50,6 +61,7 @@ internal object PlexNetworkMonitor {
             current = network
             // The first callback only reports the network the app started on: nothing was picked on another.
             if (!sawFirstNetwork.compareAndSet(false, true)) generationCounter.incrementAndGet()
+            eventCounter.update { it + 1 }
         }
 
         override fun onLost(network: Network) {
@@ -57,6 +69,7 @@ internal object PlexNetworkMonitor {
                 current = null
                 isCellular = false
                 generationCounter.incrementAndGet()
+                eventCounter.update { it + 1 }
             }
         }
 

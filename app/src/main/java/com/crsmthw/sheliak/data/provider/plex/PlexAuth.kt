@@ -10,7 +10,8 @@ import java.time.format.DateTimeParseException
 
 /**
  * A PIN the user is claiming at [authUrl] (open it in a Custom Tab). [expiresAt] is epoch milliseconds, read from
- * Plex's own `expiresAt` (PLEX.md §1: "do not hard-code it"); stop polling there.
+ * Plex's own `expiresAt` (PLEX.md §1: "do not hard-code it"); stop polling there. [code] is a strong PIN that
+ * [authUrl] already carries: nothing asks the user to type it, so it is NEVER shown (M1 fix round 1).
  */
 data class PinSession(val id: Long, val code: String, val authUrl: String, val expiresAt: Long) {
     fun isExpired(nowMs: Long): Boolean = nowMs >= expiresAt

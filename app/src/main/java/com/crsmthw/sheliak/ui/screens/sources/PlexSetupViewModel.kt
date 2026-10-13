@@ -22,9 +22,13 @@ import kotlinx.coroutines.launch
  * facade remembers which connection answered while listing libraries, which `complete` then stores):
  *
  * 1. ACCOUNT — a stored account token that plex.tv still accepts (or cannot be asked about) skips the sign-in.
- * 2. PIN — a strong PIN; the screen opens its auth URL in a Custom Tab; [PlexSetup.awaitPin] polls until the
- *    account token arrives; an expired PIN ([pinExpired]) is replaced by a new one, automatically.
- * 3. SERVERS — the account's servers, owned first; a refused token goes back to PIN.
+ *    The token outlives the servers added with it, so adding a server again skips the sign-in too.
+ * 2. SIGN_IN — lands IDLE (the button) from every way in; only [signIn] (the user's tap) requests a strong PIN,
+ *    after which the screen opens its auth URL in a Custom Tab ([PlexSetupUiState.openAuth]) and
+ *    [PlexSetup.awaitPin] polls until the account token arrives. An expired PIN ([pinExpired]) is renewed
+ *    silently (a tap then reopens the new page); a failed PIN request shows its error with Retry. No code is
+ *    ever shown.
+ * 3. SERVERS — the account's servers, owned first; a refused token goes back to SIGN_IN (idle).
  * 4. LOCAL_NETWORK — only when [PlexSetup.localNetworkPermission] names one; granted or denied, the flow goes on.
  * 5. LIBRARIES — the server's music libraries, all picked to start.
  * 6. FINISHING → DONE — `complete`, then `SourcesRepository.add` (which schedules the periodic sync and runs one).
@@ -54,13 +58,31 @@ class PlexSetupViewModel(
     fun retry() {
         when (_state.value.step) {
             PlexSetupStep.ACCOUNT       -> checkAccount()
-            PlexSetupStep.PIN           -> startPin()
+            PlexSetupStep.SIGN_IN       -> startSignIn()
             PlexSetupStep.SERVERS       -> loadServers()
             PlexSetupStep.LOCAL_NETWORK -> Unit
             PlexSetupStep.LIBRARIES     -> loadLibraries()
             PlexSetupStep.FINISHING     -> finish()
             PlexSetupStep.DONE          -> Unit
         }
+    }
+
+    /**
+     * "Sign in with Plex" was tapped ([plexSignInTap]): request a PIN and open its page, or reopen the live page
+     * while plex.tv is being waited on.
+     */
+    fun signIn() {
+        val current = _state.value
+        when (plexSignInTap(current.signIn, current.authUrl)) {
+            PlexSignInTap.START  -> startSignIn()
+            PlexSignInTap.REOPEN -> _state.update { it.copy(openAuth = true) }
+            PlexSignInTap.IGNORE -> Unit
+        }
+    }
+
+    /** The screen handled [PlexSetupUiState.openAuth] (opened the page, or found no browser). */
+    fun authOpened() {
+        _state.update { it.copy(openAuth = false) }
     }
 
     /** A server was picked: ask for the local-network permission first when it is needed, else list libraries. */
@@ -95,7 +117,7 @@ class PlexSetupViewModel(
     fun finish() {
         val current = _state.value
         val server = current.server ?: return
-        val token = accountToken ?: return startPin()
+        val token = accountToken ?: return showSignIn()
         val libraries = chosenLibraries(current.libraries, current.selected)
         if (libraries.isEmpty()) return
         launchStep(PlexSetupStep.FINISHING) {
@@ -114,21 +136,65 @@ class PlexSetupViewModel(
                 accountToken = stored
                 listServers(stored)
             } else {
-                runPin()
+                idleSignIn()
             }
         }
     }
 
-    private fun startPin() {
-        launchStep(PlexSetupStep.PIN) { runPin() }
+    /** Into SIGN_IN from outside a step's work: stop that work and land idle on the button. */
+    private fun showSignIn() {
+        work?.cancel()
+        idleSignIn()
     }
 
-    /** PIN after PIN until one is claimed: an expired PIN is replaced; only a failed PIN request stops. */
-    private suspend fun runPin() {
+    /** SIGN_IN, idle: the headline and "Sign in with Plex"; nothing is requested until the user taps. */
+    private fun idleSignIn() {
+        _state.update {
+            it.copy(
+                step     = PlexSetupStep.SIGN_IN,
+                busy     = false,
+                error    = null,
+                signIn   = PlexSignIn.IDLE,
+                authUrl  = null,
+                openAuth = false,
+            )
+        }
+    }
+
+    private fun startSignIn() {
+        launchStep(PlexSetupStep.SIGN_IN) { runSignIn() }
+    }
+
+    /**
+     * Requests a PIN and asks the screen to open its page, then waits; an expired PIN is renewed silently (the
+     * page is NOT reopened — the button does that); a failed PIN request parks the step on its error.
+     */
+    private suspend fun runSignIn() {
+        var open = true
         while (true) {
-            _state.update { it.copy(step = PlexSetupStep.PIN, busy = true, error = null, pinCode = null, authUrl = null) }
-            val session = setup.startPin().getOrElse { fail(it); return }
-            _state.update { it.copy(busy = false, pinCode = session.code, authUrl = session.authUrl) }
+            _state.update {
+                it.copy(
+                    step   = PlexSetupStep.SIGN_IN,
+                    busy   = true,
+                    error  = null,
+                    signIn = if (open) PlexSignIn.STARTING else PlexSignIn.WAITING,
+                )
+            }
+            val session = setup.startPin().getOrElse { failure ->
+                _state.update { it.copy(signIn = PlexSignIn.IDLE, authUrl = null, openAuth = false) }
+                fail(failure)
+                return
+            }
+            val openNow = open
+            _state.update {
+                it.copy(
+                    busy     = false,
+                    signIn   = PlexSignIn.WAITING,
+                    authUrl  = session.authUrl,
+                    openAuth = it.openAuth || openNow,
+                )
+            }
+            open = false
             val claimed = setup.awaitPin(session)
             val token = claimed.getOrNull()
             if (token != null) {
@@ -138,6 +204,7 @@ class PlexSetupViewModel(
             }
             val error = claimed.exceptionOrNull()?.let { ProviderError.of(it) } ?: ProviderError.UNKNOWN
             if (!pinExpired(error)) {
+                _state.update { it.copy(signIn = PlexSignIn.IDLE, authUrl = null, openAuth = false) }
                 fail(error)
                 return
             }
@@ -145,7 +212,7 @@ class PlexSetupViewModel(
     }
 
     private fun loadServers() {
-        val token = accountToken ?: return startPin()
+        val token = accountToken ?: return showSignIn()
         launchStep(PlexSetupStep.SERVERS) { listServers(token) }
     }
 
@@ -155,9 +222,9 @@ class PlexSetupViewModel(
             .onSuccess { servers -> _state.update { it.copy(servers = servers, busy = false) } }
             .onFailure { failure ->
                 if (ProviderError.of(failure) == ProviderError.AUTH) {
-                    // The stored token was revoked: sign in again.
+                    // The stored token was revoked: sign in again (the button; nothing starts by itself).
                     accountToken = null
-                    runPin()
+                    idleSignIn()
                 } else {
                     fail(failure)
                 }

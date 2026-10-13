@@ -1,6 +1,7 @@
 package com.crsmthw.sheliak.ui.screens.sources
 
 import android.content.ActivityNotFoundException
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -8,6 +9,7 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.animation.AnimatedContent
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,10 +61,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -76,6 +75,8 @@ import com.crsmthw.sheliak.ui.components.BottomFadeSpacer
 import com.crsmthw.sheliak.ui.components.RootTopBar
 import com.crsmthw.sheliak.ui.components.TopBarFade
 import com.crsmthw.sheliak.ui.components.rememberRootTopBarScrollBehavior
+import com.crsmthw.sheliak.ui.theme.StatusOffline
+import com.crsmthw.sheliak.ui.theme.StatusOnline
 import com.crsmthw.sheliak.util.confirm
 import com.crsmthw.sheliak.util.fadeThrough
 import com.crsmthw.sheliak.util.horizontalSystemBarsPadding
@@ -87,10 +88,10 @@ private val SetupMaxWidth = 560.dp
 
 /**
  * Add a Plex server — ONE navigation entry whose steps ([PlexSetupStep]) cross-fade in place with M3 fade through:
- * sign in (the PIN, large, and "Open plex.tv" in a Custom Tab; skipped when a stored account token still works),
- * pick a server, allow the local network when Android asks for it, pick the music libraries, add. Every failure
- * shows its words with Retry. Back steps inside the flow first (libraries → servers); from the first steps it
- * leaves, and while the source is being added it holds. When the source is added, [onFinished] pops the entry —
+ * sign in ("Sign in with Plex" opens plex.tv in a Custom Tab, then a still waiting line — no code is ever shown;
+ * skipped when a stored account token still works), pick a server, allow the local network when Android asks for
+ * it, pick the music libraries, add. Every failure shows its words with Retry. Back steps inside the flow first
+ * (libraries → servers); from the first steps it leaves, and while the source is being added it holds. When the source is added, [onFinished] pops the entry —
  * back to Sources, or to the library when the flow started from its empty state or from Intro.
  */
 @Composable
@@ -107,6 +108,19 @@ fun PlexSetupScreen(
 
     LaunchedEffect(state.step) {
         if (state.step == PlexSetupStep.DONE) onFinished()
+    }
+
+    // The sign-in page opens HERE, once per request — not inside the step's AnimatedContent, which composes two
+    // copies of a step during its cross-fade. The request is state ([PlexSetupUiState.openAuth]), so a rotation
+    // between the request and this effect still opens it exactly once.
+    val context = LocalContext.current
+    var noBrowser by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.openAuth, state.authUrl) {
+        val url = state.authUrl
+        if (state.openAuth && url != null) {
+            noBrowser = !openCustomTab(context, url)
+            viewModel.authOpened()
+        }
     }
 
     // In-flow back only while this entry is RESUMED (on top and settled), as the library's tab back does, so it
@@ -147,7 +161,7 @@ fun PlexSetupScreen(
                     StepColumn(scrollBehavior.nestedScrollConnection) {
                         when (step) {
                             PlexSetupStep.ACCOUNT       -> BusyLine(R.string.plex_checking_account)
-                            PlexSetupStep.PIN           -> PinStep(state)
+                            PlexSetupStep.SIGN_IN       -> SignInStep(state, noBrowser, onSignIn = viewModel::signIn)
                             PlexSetupStep.SERVERS       -> ServersStep(state, onPick = viewModel::pickServer)
                             PlexSetupStep.LOCAL_NETWORK -> LocalNetworkStep(state, onAnswered = viewModel::onLocalNetworkAnswered)
                             PlexSetupStep.LIBRARIES     -> LibrariesStep(
@@ -233,42 +247,21 @@ private fun ErrorBlock(message: String, onRetry: () -> Unit) {
 }
 
 /**
- * Sign in: the PIN code, large, and "Open plex.tv" (a Custom Tab on the PIN's auth URL; plex.tv fills the code in
- * itself, and asks for it only on a device-link page). While the code is being requested, one line says so.
+ * Sign in ([plexSignInView]): one headline line and "Sign in with Plex" — the tap requests a strong PIN and opens
+ * its auth page in a Custom Tab (plex.tv carries the code itself, so none is shown); while plex.tv is polled, a
+ * still "Waiting for plex.tv…" line under the button, which reopens the page (a closed tab, a renewed PIN).
  */
 @Composable
-private fun PinStep(state: PlexSetupUiState) {
+private fun SignInStep(state: PlexSetupUiState, noBrowser: Boolean, onSignIn: () -> Unit) {
     val haptics = LocalHapticFeedback.current
-    val context = LocalContext.current
-    var noBrowser by rememberSaveable { mutableStateOf(false) }
-    StepTitle(stringResource(R.string.plex_pin_title))
-    val code = state.pinCode
-    val url = state.authUrl
-    if (code == null || url == null) {
-        if (state.error == null) BusyLine(R.string.plex_pin_requesting)
-        return
-    }
-    StepBody(stringResource(R.string.plex_pin_body))
-    Text(
-        text          = code,
-        style         = MaterialTheme.typography.displayMedium,
-        fontFamily    = FontFamily.Monospace,
-        letterSpacing = 6.sp,
-        textAlign     = TextAlign.Center,
-        modifier      = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-    )
-    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+    val view = plexSignInView(state.signIn, state.error)
+    StepTitle(stringResource(R.string.plex_sign_in_title))
+    if (view.button) {
         Button(
-            onClick        = {
-                haptics.confirm()
-                noBrowser = try {
-                    CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(context, url.toUri())
-                    false
-                } catch (_: ActivityNotFoundException) {
-                    true
-                }
-            },
+            onClick        = { haptics.confirm(); onSignIn() },
+            enabled        = view.buttonEnabled,
             contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+            modifier       = Modifier.padding(horizontal = 24.dp),
         ) {
             Icon(
                 imageVector        = Icons.AutoMirrored.Filled.OpenInNew,
@@ -276,18 +269,26 @@ private fun PinStep(state: PlexSetupUiState) {
                 modifier           = Modifier.size(ButtonDefaults.IconSize),
             )
             Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-            Text(stringResource(R.string.plex_pin_open))
+            Text(stringResource(R.string.plex_sign_in))
         }
     }
-    if (noBrowser) {
+    if (noBrowser && state.error == null) {
         Text(
-            text     = stringResource(R.string.plex_pin_no_browser),
+            text     = stringResource(R.string.plex_sign_in_no_browser),
             style    = MaterialTheme.typography.bodyMedium,
             color    = MaterialTheme.colorScheme.error,
             modifier = Modifier.padding(horizontal = 24.dp),
         )
     }
-    StepBody(stringResource(R.string.plex_pin_waiting))
+    if (view.waiting) StepBody(stringResource(R.string.plex_sign_in_waiting))
+}
+
+/** Opens [url] in a Custom Tab; false when no browser can. */
+private fun openCustomTab(context: Context, url: String): Boolean = try {
+    CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(context, url.toUri())
+    true
+} catch (_: ActivityNotFoundException) {
+    false
 }
 
 /** Pick a server: owned first (the facade's order); each with whose it is and an online dot. */
@@ -321,19 +322,24 @@ private fun serverOwnerLine(server: PlexServerCandidate): String = when {
     else                     -> stringResource(R.string.plex_server_shared)
 }
 
-/** plex.tv's last word on whether the server is online: a filled dot, a hollow one, or nothing when unknown. */
+/**
+ * plex.tv's last word on whether the server is online, in the fixed status colours (`ui/theme/Color.kt`; Cris:
+ * green, not the accent): a filled green dot online, a hollow grey ring offline — the shape differs too, so it
+ * reads without colour — or nothing when unknown.
+ */
 @Composable
 private fun OnlineDot(online: Boolean?) {
     if (online == null) return
     val description = stringResource(if (online) R.string.plex_server_online else R.string.plex_server_offline)
+    val dot = Modifier
+        .size(10.dp)
+        .semantics { contentDescription = description }
     Box(
-        modifier = Modifier
-            .size(10.dp)
-            .semantics { contentDescription = description }
-            .background(
-                color = if (online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                shape = CircleShape,
-            ),
+        modifier = if (online) {
+            dot.background(color = StatusOnline, shape = CircleShape)
+        } else {
+            dot.border(width = 2.dp, color = StatusOffline, shape = CircleShape)
+        },
     )
 }
 

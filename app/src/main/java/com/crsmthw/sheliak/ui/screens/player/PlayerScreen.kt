@@ -27,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,7 +43,9 @@ import com.crsmthw.sheliak.domain.PlayerState
 import com.crsmthw.sheliak.player.PlayerStateManager
 import com.crsmthw.sheliak.ui.components.DetailTopBar
 import com.crsmthw.sheliak.ui.navigation.LocalNavSharedTransitionScope
+import com.crsmthw.sheliak.ui.player.AlbumArtCarousel
 import com.crsmthw.sheliak.ui.player.LocalAlbumArtColors
+import com.crsmthw.sheliak.ui.player.LocalPlayerArtGate
 import com.crsmthw.sheliak.ui.player.PAGE_TINT_ALPHA
 import com.crsmthw.sheliak.ui.player.PlayerActionRow
 import com.crsmthw.sheliak.ui.player.PlayerSeekBar
@@ -50,7 +53,6 @@ import com.crsmthw.sheliak.ui.player.PlayerTints
 import com.crsmthw.sheliak.ui.player.PlayerTrackInfo
 import com.crsmthw.sheliak.ui.player.PlayerTransport
 import com.crsmthw.sheliak.ui.player.QualityTierChip
-import com.crsmthw.sheliak.ui.player.SwipeableAlbumArt
 import com.crsmthw.sheliak.ui.player.rememberPlayerTints
 import com.crsmthw.sheliak.util.confirm
 import com.crsmthw.sheliak.util.horizontalSystemBarsPadding
@@ -63,10 +65,16 @@ import com.crsmthw.sheliak.util.horizontalSystemBarsPadding
  * §4): the bar strip is the art's edge colour over the theme background, and below the bar that colour fades
  * into the background, so the bar and the page meet without a seam. Foregrounds stay on theme roles.
  *
- * Body: the large art — the `"album-art"` shared element on this entry's navigation scope, so it morphs from
- * the mini bar or the pop-out card — then title / artist / album, the seek bar with elapsed and remaining time,
- * the quality chip, the transport (shuffle · previous · play · next · repeat) and the action row (the reserved
- * Output slot, the Queue button). Side by side when the window is wider than tall (folded landscape).
+ * Body: the art carousel ([AlbumArtCarousel] — the queue in play order, the playing track large in the centre;
+ * its centre art is the `"album-art"` shared element on this entry's navigation scope, so it morphs from the mini
+ * bar or the pop-out card), then title / artist / album, the wavy seek bar with elapsed and remaining time, the
+ * quality chip, the transport (shuffle · previous · play on its turning cookie · next · repeat) and the action row
+ * (the reserved Output slot, the Queue button). Side by side when the window is wider than tall (folded
+ * landscape).
+ *
+ * The screen registers itself with the host's `PlayerArtGate` while composed (a leaving player until its exit
+ * transition ends), so the floating surfaces' art knows a full player is there to match; and its art may match
+ * only while the gate allows it (not while a fold swap replaces it with the card).
  */
 @Composable
 fun PlayerScreen(
@@ -84,6 +92,12 @@ fun PlayerScreen(
     // is no shared scope to morph in.
     val visibilityScope: AnimatedVisibilityScope? =
         if (LocalNavSharedTransitionScope.current != null) LocalNavAnimatedContentScope.current else null
+    val artGate = LocalPlayerArtGate.current
+    DisposableEffect(artGate) {
+        artGate.composedFullPlayers++
+        onDispose { artGate.composedFullPlayers-- }
+    }
+    val artMayMatch = artGate.fullPlayerMayMatch
 
     Box(modifier = modifier.fillMaxSize()) {
         // The page: the bar's strip in the page colour, then the same colour fading into the background.
@@ -112,9 +126,9 @@ fun PlayerScreen(
                     .navigationBarsPadding(),
             ) {
                 if (maxWidth > maxHeight) {
-                    LandscapeBody(state, player, tints, visibilityScope, onOpenQueue)
+                    LandscapeBody(state, player, tints, visibilityScope, artMayMatch, onOpenQueue)
                 } else {
-                    PortraitBody(state, player, tints, visibilityScope, onOpenQueue)
+                    PortraitBody(state, player, tints, visibilityScope, artMayMatch, onOpenQueue)
                 }
             }
 
@@ -141,26 +155,29 @@ private fun PortraitBody(
     player         : PlayerStateManager,
     tints          : PlayerTints,
     visibilityScope: AnimatedVisibilityScope?,
+    artMayMatch    : Boolean,
     onOpenQueue    : () -> Unit,
 ) {
     Column(
         modifier            = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // Edge to edge: the neighbours peek in from the window's sides.
         BoxWithConstraints(
             modifier         = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 12.dp),
+                .padding(vertical = 12.dp),
             contentAlignment = Alignment.Center,
         ) {
-            SwipeableAlbumArt(
-                track           = state.track,
+            AlbumArtCarousel(
+                queue           = state.queue,
                 queueIndex      = state.queueIndex,
                 visibilityScope = visibilityScope,
-                size            = minOf(maxWidth, maxHeight),
-                onNext          = player::next,
-                onPrevious      = player::previous,
+                artMayMatch     = artMayMatch,
+                availableWidth  = maxWidth,
+                availableHeight = maxHeight,
+                onSeekTo        = player::seekToQueueIndex,
             )
         }
         Column(
@@ -181,6 +198,7 @@ private fun LandscapeBody(
     player         : PlayerStateManager,
     tints          : PlayerTints,
     visibilityScope: AnimatedVisibilityScope?,
+    artMayMatch    : Boolean,
     onOpenQueue    : () -> Unit,
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
@@ -191,13 +209,14 @@ private fun LandscapeBody(
                 .padding(start = 16.dp, end = 8.dp, bottom = 16.dp),
             contentAlignment = Alignment.Center,
         ) {
-            SwipeableAlbumArt(
-                track           = state.track,
+            AlbumArtCarousel(
+                queue           = state.queue,
                 queueIndex      = state.queueIndex,
                 visibilityScope = visibilityScope,
-                size            = minOf(maxWidth, maxHeight),
-                onNext          = player::next,
-                onPrevious      = player::previous,
+                artMayMatch     = artMayMatch,
+                availableWidth  = maxWidth,
+                availableHeight = maxHeight,
+                onSeekTo        = player::seekToQueueIndex,
             )
         }
         // Centred in the pane; scrolls only when a very short window cannot fit the controls.
@@ -241,6 +260,7 @@ private fun ColumnScope.PlayerControls(
         player     = player,
         trackKey   = track?.key,
         durationMs = state.durationMs,
+        isPlaying  = state.isPlaying,
         tint       = tints.surfaceAccent,
         modifier   = Modifier.fillMaxWidth(),
     )

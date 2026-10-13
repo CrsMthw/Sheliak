@@ -109,10 +109,20 @@ class PlexHeadersInterceptor(
     }
 }
 
-/** CredentialStore keys. Per-server secrets live under [serverPrefix] so `removeAll` takes exactly one server's. */
+/**
+ * CredentialStore keys. Per-server secrets live under [serverPrefix] so `removeAll` takes exactly one server's;
+ * the account's live under [ACCOUNT_PREFIX] so "Forget Plex account" takes exactly the account's
+ * ([PlexCredentialRules]).
+ */
 object PlexKeys {
+    /** Everything the plex.tv account owns; deleted only by "Forget Plex account". */
+    const val ACCOUNT_PREFIX = "plex:account:"
     const val ACCOUNT_TOKEN = "plex:account:token"
-    /** Comma-separated machine ids of the Plex servers added, so the last removal also signs the account out. */
+    /**
+     * Legacy: 0.1.0 (M1) kept the machine ids added with the account here, to delete the account token with the
+     * last server. The token is now kept; nothing writes this key, and "Forget Plex account" removes it with
+     * the rest of [ACCOUNT_PREFIX].
+     */
     const val ACCOUNT_SERVERS = "plex:account:servers"
     /** Not a secret, but it must survive every server's removal: Plex wants one id per install, forever. */
     const val CLIENT_ID = "plex:client:id"

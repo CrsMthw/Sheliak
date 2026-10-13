@@ -2,6 +2,9 @@ package com.crsmthw.sheliak.data.provider
 
 import com.crsmthw.sheliak.domain.ArtRef
 import com.crsmthw.sheliak.domain.TrackKey
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * One source of music behind the index — a provider INSTANCE (one Plex server, one Jellyfin server, the device).
@@ -9,8 +12,8 @@ import com.crsmthw.sheliak.domain.TrackKey
  * HTTP models. Built by its [ProviderFactory] from the `providers` row; see `docs/DESIGN.md` §1 and
  * `docs/INDEX.md`.
  *
- * Members after [artModel] are later milestones' and have "not supported" defaults, so an M1 provider
- * implements only the first five.
+ * Members after [artModel] have defaults ("never changes" for [artVersion], "not supported" for the later
+ * milestones' ones), so an M1 provider implements only the first five.
  */
 interface MusicProvider {
 
@@ -37,6 +40,15 @@ interface MusicProvider {
      * on its longer side, carrying whatever auth the provider needs; null → placeholder art.
      */
     fun artModel(ref: ArtRef, sizePx: Int): Any?
+
+    /**
+     * Moves (only ever up) whenever [artModel] may now answer differently for the same [ArtRef] — a provider
+     * that builds art URLs on a connection it picks at run time bumps it when the pick lands or changes, and
+     * when the credential its URLs carry arrives or changes. The app root re-creates its art resolver on every
+     * move, so every visible cover is resolved again (and a load that failed is retried) without the user
+     * switching screens. The default never moves ([NoArtVersion]).
+     */
+    val artVersion: StateFlow<Int> get() = NoArtVersion.flow
 
     /** Lyrics from the server (M2). `success(null)` = definitely none; failure = could not ask. */
     suspend fun lyrics(track: TrackKey): Result<Lyrics?> = Result.success(null)
@@ -68,4 +80,9 @@ interface MusicProvider {
 interface ProviderFactory {
     val type: String
     fun create(instance: ProviderInstance, deps: ProviderDeps): MusicProvider
+}
+
+/** The [MusicProvider.artVersion] of a provider whose art never changes: one shared flow that stays at 0. */
+object NoArtVersion {
+    val flow: StateFlow<Int> = MutableStateFlow(0).asStateFlow()
 }

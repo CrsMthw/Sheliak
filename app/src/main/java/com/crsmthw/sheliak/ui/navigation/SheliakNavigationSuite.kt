@@ -1,21 +1,17 @@
 package com.crsmthw.sheliak.ui.navigation
 
 import androidx.annotation.StringRes
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
@@ -30,40 +26,42 @@ import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumFloatingActionButton
+import androidx.compose.material3.NavigationItemColors
+import androidx.compose.material3.ShortNavigationBarItemDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.WideNavigationRailItemDefaults
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteItem
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
-import androidx.compose.material3.toShape
+import androidx.compose.material3.toPath
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Matrix
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalWindowInfo
-import com.crsmthw.sheliak.ui.components.LargeBarMinPaneHeight
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.navigation3.ui.LocalNavAnimatedContentScope
+import androidx.graphics.shapes.Morph
 import com.crsmthw.sheliak.R
-import com.crsmthw.sheliak.util.artBoundsTransform
+import com.crsmthw.sheliak.ui.components.LargeBarMinPaneHeight
 import com.crsmthw.sheliak.util.press
-import com.crsmthw.sheliak.util.rememberSearchBarMorphClip
 import com.crsmthw.sheliak.util.screenTransitionSpec
 
 /** One library tab in the suite: its tab, label and the outlined / filled icon pair. */
@@ -74,13 +72,17 @@ private data class SuiteDestination(
     val selectedIcon: ImageVector,
 )
 
-/** The four tabs in suite order — the same order as [LibraryTab]. */
-private val SuiteDestinations = listOf(
-    SuiteDestination(LibraryTab.TRACKS,    R.string.nav_tracks,    Icons.Outlined.LibraryMusic,          Icons.Filled.LibraryMusic),
-    SuiteDestination(LibraryTab.ALBUMS,    R.string.nav_albums,    Icons.Outlined.Album,                 Icons.Filled.Album),
-    SuiteDestination(LibraryTab.ARTISTS,   R.string.nav_artists,   Icons.Outlined.Person,                Icons.Filled.Person),
-    SuiteDestination(LibraryTab.PLAYLISTS, R.string.nav_playlists, Icons.AutoMirrored.Outlined.QueueMusic, Icons.AutoMirrored.Filled.QueueMusic),
-)
+/** The suite's item for [tab]. */
+private fun suiteDestinationOf(tab: LibraryTab): SuiteDestination = when (tab) {
+    LibraryTab.TRACKS    -> SuiteDestination(tab, R.string.nav_tracks,    Icons.Outlined.LibraryMusic,           Icons.Filled.LibraryMusic)
+    LibraryTab.ALBUMS    -> SuiteDestination(tab, R.string.nav_albums,    Icons.Outlined.Album,                  Icons.Filled.Album)
+    LibraryTab.SEARCH    -> SuiteDestination(tab, R.string.nav_search,    Icons.Filled.Search,                   Icons.Filled.Search)
+    LibraryTab.ARTISTS   -> SuiteDestination(tab, R.string.nav_artists,   Icons.Outlined.Person,                 Icons.Filled.Person)
+    LibraryTab.PLAYLISTS -> SuiteDestination(tab, R.string.nav_playlists, Icons.AutoMirrored.Outlined.QueueMusic, Icons.AutoMirrored.Filled.QueueMusic)
+}
+
+/** The five items in suite order — exactly [LibraryTab]'s order, so Search ([SuiteActionTab]) is the centre one. */
+private val SuiteDestinations: List<SuiteDestination> = LibraryTab.entries.map(::suiteDestinationOf)
 
 /**
  * The current window's width class, read the standard way (M3 adaptive window size class). The V2 reader
@@ -97,18 +99,21 @@ private fun SuiteLayout.toNavigationSuiteType(): NavigationSuiteType = when (thi
 }
 
 /**
- * The library's navigation suite: Material's [NavigationSuiteScaffold] with the four tabs, around the library's
- * content ([content]). It lives INSIDE the Library navigation entry (`LibraryShell`), so a pushed screen covers
- * it like any other part of the library and a predictive back reveals it whole, and the content beside it —
- * the bar, the tab lists, the compact search FAB — never moves when a screen is pushed.
+ * The library's navigation suite: Material's [NavigationSuiteScaffold] with the five tabs — Tracks, Albums,
+ * **Search**, Artists, Playlists — around the library's content ([content]). It lives INSIDE the Library
+ * navigation entry (`LibraryShell`), so a pushed screen covers it like any other part of the library and a
+ * predictive back reveals it whole, and the content beside it never moves when a screen is pushed.
  *
- * [layout] comes from [suiteLayoutFor]. On the rail widths the search button is the FIRST child of the rail's
- * items ([RailSearchButton]) and the whole group — search + the four tabs — is centred vertically on the rail
+ * Search ([SuiteActionTab]) is an ordinary tab of the suite — the same item type, label and selection semantics
+ * as the others, in the centre of the bar and of both rails — drawn as the suite's ACTION: its icon sits inside
+ * an M3 Expressive shape ([SearchItemIcon]) instead of the selection pill, which is hidden for that one item
+ * (its colours' `selectedIndicatorColor` is transparent). The first tap selects it like any tab; re-tapping the
+ * selected tab calls [onReselectTab] — the shell focuses the search field there and scrolls lists to the top on
+ * the others ([tabReselectFor]).
+ *
+ * [layout] comes from [suiteLayoutFor]. On the rails the whole group is centred vertically
  * (`navigationItemVerticalArrangement = Arrangement.Center`), within thumb reach on a tablet or an unfolded
- * phone, the way Gmail's rail does it. It does not use the scaffold's primary-action slot: that is the rail's
- * header, which `WideNavigationRail` pins to the rail's top whatever the arrangement. On compact the search FAB
- * is NOT in the suite: it is composed by the library's content ([SearchFab]), because it is one end of a
- * shared-element morph and must live inside a navigation entry, outside the bar's own layout.
+ * phone, the way Gmail's rail does it.
  *
  * It also tells the player surface where the suite is ([LocalPlayerSurfaceChrome]): the bar's measured TOTAL
  * height (the navigation-bar inset it covers included) while the bar shows, the rail's measured width while a rail
@@ -122,7 +127,6 @@ fun SheliakNavigationSuite(
     layout       : SuiteLayout,
     selectedTab  : LibraryTab,
     onSelectTab  : (LibraryTab) -> Unit,
-    onOpenSearch : () -> Unit,
     modifier     : Modifier = Modifier,
     onReselectTab: (LibraryTab) -> Unit = {},
     content      : @Composable () -> Unit,
@@ -136,32 +140,32 @@ fun SheliakNavigationSuite(
         publisher.layout = layout
         onDispose { publisher.reset() }
     }
+    val actionColors = suiteActionItemColors(layout)
     NavigationSuiteScaffold(
         navigationItems                   = {
-            // The same items feed the compact bar, so the rail-only button is guarded here: on the bar it would
-            // become a fifth bar item.
-            when (layout) {
-                SuiteLayout.CollapsedRail -> RailSearchButton(expanded = false, onClick = onOpenSearch)
-                SuiteLayout.ExpandedRail  -> RailSearchButton(expanded = true, onClick = onOpenSearch)
-                SuiteLayout.Bar           -> Unit
-            }
             SuiteDestinations.forEach { destination ->
                 val selected = destination.tab == selectedTab
+                val isAction = destination.tab == SuiteActionTab
                 NavigationSuiteItem(
                     selected            = selected,
                     onClick             = {
                         haptics.press()
-                        // Re-selecting the current tab sends its list back to the top.
+                        // Re-selecting the current tab is the shell's to interpret (scroll to top / focus search).
                         if (selected) onReselectTab(destination.tab) else onSelectTab(destination.tab)
                     },
                     icon                = {
-                        Icon(
-                            imageVector        = if (selected) destination.selectedIcon else destination.icon,
-                            contentDescription = null,
-                        )
+                        if (isAction) {
+                            SearchItemIcon(icon = destination.selectedIcon, selected = selected)
+                        } else {
+                            Icon(
+                                imageVector        = if (selected) destination.selectedIcon else destination.icon,
+                                contentDescription = null,
+                            )
+                        }
                     },
                     label               = { Text(stringResource(destination.labelRes)) },
                     navigationSuiteType = type,
+                    colors              = if (isAction) actionColors else null,
                 )
             }
         },
@@ -169,25 +173,111 @@ fun SheliakNavigationSuite(
         navigationSuiteType               = type,
         // EXACTLY Arrangement.Center: WideNavigationRail tests for that instance and only then centres the items on
         // the rail's full height. The bar ignores the arrangement. No primaryActionContent: the rail's header
-        // stays empty (zero height, so it adds no header gap) and compact has its own FAB (see the KDoc).
+        // stays empty (zero height, so it adds no header gap) — Search is one of the items, not a header button.
         // Centred only on a pane at least LargeBarMinPaneHeight tall (the same measured 600dp gate the large
-        // bar uses): the search button + four tabs are ~344dp, and on the folded outer screen in landscape
-        // (~390dp usable, 44dp of rail padding) a centred group would overflow equally off both ends and
-        // clip, while a top arrangement there is within reach anyway.
+        // bar uses): the five items are ~340dp, and on the folded outer screen in landscape (~390dp usable, 44dp
+        // of rail padding) a centred group would overflow equally off both ends and clip, while a top
+        // arrangement there is within reach anyway.
         navigationItemVerticalArrangement = if (railTallEnoughToCentre()) Arrangement.Center else Arrangement.Top,
         content                           = {
-            // The suite's own component covers a system inset for the content: the bottom one under a bar,
-            // the START side beside a rail (a 3-button bar on the END edge is still the content's to clear).
-            // Consuming it here is what makes every inset MODIFIER below — the bottom fade, the FAB's
-            // `navigationBarsPadding()` — measure only what is still owed, with no knowledge of the suite.
+            // The suite's own component covers part of the window for the content: the bottom under a bar, the
+            // START side beside a rail (a 3-button bar on the END edge is still the content's to clear).
+            // Consuming it here is what makes every inset MODIFIER below — the bottom fades, `imePadding()` on
+            // the Search tab — measure only what is still owed, with no knowledge of the suite:
+            // - the system inset the component sits on (known from the first frame);
+            // - under the bar, the bar's whole measured height as well, so a keyboard raised on the Search tab
+            //   is owed only its part ABOVE the bar (the bar is hidden behind it), never the bar's height twice.
+            // Both as WindowInsets: that overload UNIONS with what is already consumed (the larger per side — the
+            // bar's height, which includes the inset), while the PaddingValues overload would ADD the two.
             Box(
                 Modifier
                     .fillMaxSize()
                     .onSizeChanged { publisher.onContentSize(it, density) }
-                    .consumeWindowInsets(suiteCoveredInsets(layout)),
+                    .consumeWindowInsets(suiteCoveredInsets(layout))
+                    .consumeWindowInsets(WindowInsets(bottom = chrome.bottomBar)),
             ) { content() }
         },
     )
+}
+
+/**
+ * The colours of the Search item ([SuiteActionTab]): the layout's own item defaults with the selection pill made
+ * transparent, because the item's shape ([SearchItemIcon]) IS its container and shows the selection itself.
+ * The 8-colour `colors(…)` overload (the 7-colour one is hidden in material3 1.5.0-alpha29).
+ */
+@Composable
+private fun suiteActionItemColors(layout: SuiteLayout): NavigationItemColors = when (layout) {
+    SuiteLayout.Bar           -> ShortNavigationBarItemDefaults.colors(selectedIndicatorColor = Color.Transparent)
+    SuiteLayout.CollapsedRail,
+    SuiteLayout.ExpandedRail  -> WideNavigationRailItemDefaults.colors(selectedIndicatorColor = Color.Transparent)
+}
+
+/** The item's own icon size (M3 navigation item tokens): what the Search item reports to the item's layout. */
+private val SuiteIconSize = 24.dp
+
+/**
+ * The Search item's shape, drawn around its [SuiteIconSize] icon. 36dp: the top-icon items (bar and collapsed
+ * rail) put their 32dp-tall pill 4dp above and below the icon and the label 4dp under the pill, so a 36dp shape
+ * still clears the label by 2dp; on the expanded rail's start-icon item the label starts 8dp after the icon, so
+ * it clears it by 2dp there too.
+ */
+private val SearchShapeSize = 36.dp
+
+/**
+ * The Search item's icon: the search glyph on an M3 Expressive shape — `primaryContainer` / `onPrimaryContainer`,
+ * `primary` / `onPrimary` while selected — that MORPHS (`androidx.graphics.shapes.Morph`) from a 9-sided cookie,
+ * which reads as a button, to the soft burst the old search button wore while the tab is selected, and back, on
+ * the one finite spec, its colours crossfading with it. Nothing about it loops.
+ *
+ * The item lays it out as a [SuiteIconSize] icon, so the label sits exactly where every other item's does; the
+ * shape is drawn [SearchShapeSize] wide around it, past the icon's bounds (a navigation item does not clip its
+ * icon). Drawn in the draw phase from the morph's progress, so the animation redraws, never recomposes.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun SearchItemIcon(icon: ImageVector, selected: Boolean) {
+    val colors = MaterialTheme.colorScheme
+    val progress by animateFloatAsState(
+        targetValue   = if (selected) 1f else 0f,
+        animationSpec = screenTransitionSpec(),
+        label         = "searchShapeMorph",
+    )
+    val container by animateColorAsState(
+        targetValue   = if (selected) colors.primary else colors.primaryContainer,
+        animationSpec = screenTransitionSpec(),
+        label         = "searchShapeContainer",
+    )
+    val content by animateColorAsState(
+        targetValue   = if (selected) colors.onPrimary else colors.onPrimaryContainer,
+        animationSpec = screenTransitionSpec(),
+        label         = "searchShapeContent",
+    )
+    val morph = remember { Morph(start = MaterialShapes.Cookie9Sided, end = MaterialShapes.SoftBurst) }
+    val overflow = (SearchShapeSize - SuiteIconSize) / 2
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier         = Modifier
+            .size(SuiteIconSize)
+            .drawWithCache {
+                val path = Path()
+                val matrix = Matrix()
+                val overflowPx = overflow.toPx()
+                onDrawBehind {
+                    inset(-overflowPx) {
+                        // The morph is in the unit square (MaterialShapes are normalised); scale it onto the
+                        // shape's square the way material3's own `RoundedPolygon.toShape()` does.
+                        path.rewind()
+                        morph.toPath(progress = progress, path = path)
+                        matrix.reset()
+                        matrix.scale(x = size.width, y = size.height)
+                        path.transform(matrix)
+                        drawPath(path = path, color = container)
+                    }
+                }
+            },
+    ) {
+        Icon(imageVector = icon, contentDescription = null, tint = content)
+    }
 }
 
 /**
@@ -237,136 +327,6 @@ private fun suiteCoveredInsets(layout: SuiteLayout): WindowInsets = when (layout
     SuiteLayout.Bar           -> WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)
     SuiteLayout.CollapsedRail,
     SuiteLayout.ExpandedRail  -> WindowInsets.systemBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Start)
-}
-
-/**
- * Start padding of the rail search button, so it sits on the rail's own item geometry instead of flush with its
- * edge. `WideNavigationRail` places EVERY child of its items at x = 0 (its items layout is not a centring column),
- * and the destinations carry the item horizontal padding themselves — material3's `internal`
- * `WNRItemHorizontalPadding`, 20dp in 1.5.0-alpha29. The button mirrors it:
- * - collapsed rail (96dp): a top-icon item is 20 + 56 + 20dp wide with its icon centred at 48dp, and a 56dp FAB
- *   after 20dp is centred at 48dp too — on the item column;
- * - expanded rail: the item indicators start at 20dp, and so does the extended FAB.
- * Padding, never a filling or centring wrapper: the expanded rail's width follows its widest item, so a button
- * that fills would widen the rail.
- */
-private val RailItemStartPadding = 20.dp
-
-/**
- * The gap the rail search button leaves below itself before the first destination, so it reads as the group's
- * action rather than a fifth tab. The rail adds its own item spacing on top (4dp collapsed, 0dp expanded), so the
- * layout gap is 20dp on the collapsed rail and 16dp on the expanded one; the first tab's indicator sits a little
- * lower still, inside its item.
- */
-private val RailSearchButtonGap = 16.dp
-
-/**
- * The rail search button, first in the rail's items and centred with them: a FAB on the collapsed rail, an
- * extended FAB (icon + label) on the expanded one, in the same tertiary tone as the compact [SearchFab] so search
- * reads as one control at every width, offset by [RailItemStartPadding] onto the rail's item column and
- * [RailSearchButtonGap] above the first tab. Opening Search from here uses the ordinary push transition — no
- * container morph on rail widths.
- *
- * The [Box] around the button is load-bearing: the rail measures every item child with a MINIMUM height (64dp on
- * the collapsed rail), which would stretch a bare 56dp FAB into a distorted SoftBurst. A `Box` measures its
- * content with the minimums dropped, so the button keeps its own size whatever the rail imposes.
- */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun RailSearchButton(expanded: Boolean, onClick: () -> Unit) {
-    val haptics = LocalHapticFeedback.current
-    val label = stringResource(R.string.nav_search)
-    val click = { haptics.press(); onClick() }
-    Box(Modifier.padding(start = RailItemStartPadding, bottom = RailSearchButtonGap)) {
-        if (expanded) {
-            ExtendedFloatingActionButton(
-                onClick        = click,
-                icon           = { Icon(Icons.Filled.Search, contentDescription = null) },
-                text           = { Text(label) },
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                contentColor   = MaterialTheme.colorScheme.onTertiaryContainer,
-            )
-        } else {
-            FloatingActionButton(
-                onClick        = click,
-                shape          = MaterialShapes.SoftBurst.toShape(),
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                contentColor   = MaterialTheme.colorScheme.onTertiaryContainer,
-            ) {
-                Icon(Icons.Filled.Search, contentDescription = label)
-            }
-        }
-    }
-}
-
-/** Pairs the compact search FAB with the Search screen's floating bar for the container transform. */
-private const val SearchBarSharedKey = "search-bar"
-
-/**
- * The compact search FAB, bottom-end of the library's content `Box` — composed ONCE there, over whichever tab
- * shows, so a tab change never recomposes or re-shadows it — lifted by the player surface's inset
- * ([LocalPlayerSurfaceInset]) so it sits above the mini player — the lift glides on the one finite spec when the
- * bar comes or goes, instead of jumping. A [MediumFloatingActionButton] because
- * the morph's geometry is measured from an 80dp FAB (`util/SearchBarMorph.kt`), in a tertiary tone with the
- * expressive SoftBurst silhouette so it never reads as a play button. Tapping it morphs it into the Search
- * screen's bar ([searchBarSharedBounds]). The suite lives in the same entry, so pushing Search never moves the
- * FAB: the morph starts exactly where the FAB is.
- *
- * Its `navigationBarsPadding()` resolves to zero under the suite's bar, which consumes that inset; it is there
- * so the FAB can never sit in the gesture area should it ever be composed without the bar.
- */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-fun BoxScope.SearchFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val haptics = LocalHapticFeedback.current
-    val playerLift by animateDpAsState(
-        targetValue   = LocalPlayerSurfaceInset.current,
-        animationSpec = screenTransitionSpec(),
-        label         = "searchFabLift",
-    )
-    MediumFloatingActionButton(
-        onClick        = { haptics.press(); onClick() },
-        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-        contentColor   = MaterialTheme.colorScheme.onTertiaryContainer,
-        shape          = MaterialShapes.SoftBurst.toShape(),
-        modifier       = modifier
-            .align(Alignment.BottomEnd)
-            .navigationBarsPadding()
-            .padding(end = 16.dp, bottom = 16.dp + playerLift)
-            .searchBarSharedBounds(),
-    ) {
-        Icon(
-            imageVector        = Icons.Filled.Search,
-            contentDescription = stringResource(R.string.nav_search),
-            modifier           = Modifier.size(FloatingActionButtonDefaults.MediumIconSize),
-        )
-    }
-}
-
-/**
- * The `"search-bar"` container transform, applied identically at both ends — the compact [SearchFab] and the
- * Search screen's floating bar — so the two halves share one bounds transform and one outline clip
- * (`rememberSearchBarMorphClip`) on every frame. The bounds run on the ONE finite spec, and so does the
- * cross-fade of the two contents: `sharedBounds`' default fades are springs, which would outlast the nav slide.
- *
- * A no-op outside a navigation entry that has the shell's shared-transition scope, and on rail widths, where
- * Search opens with the plain push transition.
- */
-@Composable
-fun Modifier.searchBarSharedBounds(): Modifier {
-    val sharedScope = LocalNavSharedTransitionScope.current
-    if (sharedScope == null || !searchMorphEnabled(currentWindowWidth())) return this
-    val visibilityScope = LocalNavAnimatedContentScope.current
-    return with(sharedScope) {
-        this@searchBarSharedBounds.sharedBounds(
-            sharedContentState            = rememberSharedContentState(key = SearchBarSharedKey),
-            animatedVisibilityScope       = visibilityScope,
-            enter                         = fadeIn(screenTransitionSpec()),
-            exit                          = fadeOut(screenTransitionSpec()),
-            boundsTransform               = artBoundsTransform(),
-            clipInOverlayDuringTransition = rememberSearchBarMorphClip(),
-        )
-    }
 }
 
 /**

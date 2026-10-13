@@ -42,7 +42,10 @@ fun AlbumDetailScreen(
     )
 }
 
-/** The artist entry: their albums, each opening its own album entry. */
+/**
+ * The artist entry: Play / Shuffle over their tracks, their albums (each opening its own album entry), then the
+ * tracks. Its track sheet offers "Go to album" (never "Go to artist": this is the artist).
+ */
 @Composable
 fun ArtistDetailScreen(
     artistKey  : TrackKey,
@@ -52,15 +55,19 @@ fun ArtistDetailScreen(
     modifier   : Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val currentTrack by rememberCurrentTrackKey(viewModel.playerStates)
     val mode = remember(onBack) { DetailMode.Screen(onBack) }
     ArtistDetailContent(
-        artistKey   = artistKey,
-        state       = state,
-        mode        = mode,
-        paneColor   = MaterialTheme.colorScheme.background,
-        listState   = rememberLazyListState(),
-        onOpenAlbum = onOpenAlbum,
-        modifier    = modifier,
+        artistKey    = artistKey,
+        state        = state,
+        mode         = mode,
+        paneColor    = MaterialTheme.colorScheme.background,
+        listState    = rememberLazyListState(),
+        player       = viewModel.player,
+        currentTrack = currentTrack,
+        menuActions  = rememberTrackMenuActions(viewModel.player, onGoToAlbum = onOpenAlbum, onGoToArtist = null),
+        onOpenAlbum  = onOpenAlbum,
+        modifier     = modifier,
     )
 }
 

@@ -40,8 +40,14 @@ interface PlaybackController {
     /** Moves the queue row at [from] to [to] (both play-order positions). */
     fun move(from: Int, to: Int)
 
-    /** Plays the queue row at [index] from its start. */
+    /** Plays the queue row at [index] from its start (the queue screen's tap: a paused player starts playing). */
     fun skipToQueueIndex(index: Int)
+
+    /**
+     * Moves to the queue row at [index], at its start, WITHOUT touching play / pause: a paused player stays paused
+     * on the new track, a playing one keeps playing (the art carousel's swipe).
+     */
+    fun seekToQueueIndex(index: Int)
 }
 
 /** Ours → Media3's repeat constant. */

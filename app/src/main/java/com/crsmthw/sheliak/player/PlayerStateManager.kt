@@ -235,6 +235,13 @@ class PlayerStateManager(
         c.play()
     }
 
+    // No play(): playWhenReady stays whatever it was. prepare() (an idle player after a restore) leaves it alone too.
+    override fun seekToQueueIndex(index: Int) = withController { c ->
+        val window = order.getOrNull(index) ?: return@withController
+        c.seekToDefaultPosition(window)
+        if (c.playbackState == Player.STATE_IDLE) c.prepare()
+    }
+
     /**
      * A voice "play …" from the phone (`MEDIA_PLAY_FROM_SEARCH`, MainActivity): one item with an empty media id
      * and the query as `requestMetadata.searchQuery`, which the session resolves exactly as it does Android Auto's

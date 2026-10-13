@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Sheliak</string>
 
-    <!-- Navigation: the library's four tabs, search, and the shared back arrow -->
+    <!-- Navigation: the library's five tabs (Search is the centre one) and the shared back arrow -->
     <string name="nav_tracks">Tracks</string>
     <string name="nav_albums">Albums</string>
     <string name="nav_artists">Artists</string>

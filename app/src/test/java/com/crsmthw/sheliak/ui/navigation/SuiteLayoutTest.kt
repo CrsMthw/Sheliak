@@ -52,15 +52,6 @@ class SuiteLayoutTest {
         assertEquals(SuiteLayout.ExpandedRail, suiteLayoutFor(windowWidthOf(882)))
     }
 
-    // ── searchMorphEnabled ──────────────────────────────────────────────────
-
-    @Test
-    fun `the search morph runs on compact only`() {
-        assertTrue(searchMorphEnabled(WindowWidth.Compact))
-        assertFalse(searchMorphEnabled(WindowWidth.Medium))
-        assertFalse(searchMorphEnabled(WindowWidth.Expanded))
-    }
-
     // ── list-detail ─────────────────────────────────────────────────────────
 
     @Test
@@ -73,6 +64,19 @@ class SuiteLayoutTest {
     @Test
     fun `Tracks is single pane at every width`() {
         WindowWidth.entries.forEach { width -> assertFalse(libraryTabIsTwoPane(LibraryTab.TRACKS, width), "$width") }
+    }
+
+    @Test
+    fun `Search is single pane at every width`() {
+        WindowWidth.entries.forEach { width -> assertFalse(libraryTabIsTwoPane(LibraryTab.SEARCH, width), "$width") }
+    }
+
+    @Test
+    fun `exactly the three list-detail tabs are ever two-pane`() {
+        val twoPaneSomewhere = LibraryTab.entries.filter { tab ->
+            WindowWidth.entries.any { width -> libraryTabIsTwoPane(tab, width) }
+        }
+        assertEquals(listOf(LibraryTab.ALBUMS, LibraryTab.ARTISTS, LibraryTab.PLAYLISTS), twoPaneSomewhere)
     }
 
     @Test

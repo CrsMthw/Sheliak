@@ -16,9 +16,9 @@ import com.crsmthw.sheliak.R
 import com.crsmthw.sheliak.domain.Playlist
 
 /**
- * The Playlists tab: list cards ([PlaylistListCard]) with a small Play button each. Below 600dp a pick pushes the
- * playlist's entry with the shared art; from 600dp it is two-pane, the picked playlist in the right card. Pull to
- * sync every source.
+ * The Playlists tab: list cards ([PlaylistListCard]) with a small Play button each, and the alphabet fast scroller
+ * once there are enough of them. Below 600dp a pick pushes the playlist's entry with the shared art; from 600dp it
+ * is two-pane, the picked playlist in the right card. Pull to sync every source.
  */
 @Composable
 internal fun PlaylistsTab(
@@ -38,6 +38,8 @@ internal fun PlaylistsTab(
     val syncProgress by viewModel.syncProgress.collectAsStateWithLifecycle()
     val emptyTitle = stringResource(R.string.library_empty_playlists)
     val emptyBody = emptyBodyFor(hasSources, syncProgress)
+    val alphabet by viewModel.playlistIndex.collectAsStateWithLifecycle()
+    val emptyKind = emptyStateFor(hasSources, listLoaded = playlists != null, listEmpty = playlists.isNullOrEmpty())
 
     val list: @Composable (Color, Modifier) -> Unit = { listColor, frameModifier ->
         LibraryRefreshFrame(
@@ -45,9 +47,14 @@ internal fun PlaylistsTab(
             onRefresh    = viewModel::refresh,
             paneColor    = listColor,
             modifier     = frameModifier,
+            overlay      = { if (emptyKind == null) LibraryFastScroller(listState = listState, index = alphabet) },
         ) {
-            LibraryTabList(listState = listState, nestedScrollConnection = nestedScrollConnection) {
-                when (emptyStateFor(hasSources, listLoaded = playlists != null, listEmpty = playlists.isNullOrEmpty())) {
+            LibraryTabList(
+                listState              = listState,
+                nestedScrollConnection = nestedScrollConnection,
+                bottomRoom             = emitsBottomRoom(emptyKind),
+            ) {
+                when (emptyKind) {
                     LibraryEmptyKind.NOTHING_YET -> Unit
                     LibraryEmptyKind.NO_SOURCE,
                     LibraryEmptyKind.EMPTY_LIST  -> item(key = EMPTY_STATE_KEY) {

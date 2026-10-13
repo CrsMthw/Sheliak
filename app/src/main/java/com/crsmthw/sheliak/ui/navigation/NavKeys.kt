@@ -17,13 +17,11 @@ import kotlinx.serialization.modules.subclass
 @Serializable data object Intro : NavKey
 
 /**
- * The library — the navigation suite (bar or rail) and its four tabs ([LibraryTab]) in ONE entry, and the
- * bottom of every back stack. Because the suite lives inside this entry, a screen pushed on top covers the
- * bar or rail along with the rest of the library, and a (predictive) back reveals it whole.
+ * The library — the navigation suite (bar or rail) and its five tabs ([LibraryTab], Search among them) in ONE
+ * entry, and the bottom of every back stack. Because the suite lives inside this entry, a screen pushed on top
+ * covers the bar or rail along with the rest of the library, and a (predictive) back reveals it whole.
  */
 @Serializable data object Library : NavKey
-
-@Serializable data object Search : NavKey
 
 @Serializable data object Settings : NavKey
 
@@ -35,7 +33,7 @@ import kotlinx.serialization.modules.subclass
 
 /**
  * One album, pushed from the library below 600dp (at 600dp and up the Albums tab shows it in its own right pane
- * instead), from search, from an artist and from a track's "Go to album". [providerId] / [itemId] are the
+ * instead), from the Search tab, from an artist and from a track's "Go to album". [providerId] / [itemId] are the
  * album's `TrackKey`, flattened so the key stays a plain serializable value.
  */
 @Serializable data class AlbumDetail(val providerId: String, val itemId: String) : NavKey
@@ -73,7 +71,7 @@ fun artistDetailOf(artist: TrackKey): ArtistDetail = ArtistDetail(artist.provide
  * data, so a sample instance of each stands in for its class.
  */
 val AllNavKeys: List<NavKey> = listOf(
-    Intro, Library, Search, Settings, Player, Queue,
+    Intro, Library, Settings, Player, Queue,
     AlbumDetail(providerId = "plex:sample", itemId = "1"),
     ArtistDetail(providerId = "plex:sample", itemId = "2"),
     PlaylistDetail(id = 3L),
@@ -82,21 +80,41 @@ val AllNavKeys: List<NavKey> = listOf(
 
 /**
  * Whether the floating player surface (the mini bar and the pop-out panel) may show over the entry on top of the
- * back stack: on the library, search and the detail screens, which are where music is browsed; never over Intro,
- * Settings, Sources or the Plex setup (nothing to browse there), nor over the full player and the queue (which
- * ARE the player). Null — no entry yet — is false.
+ * back stack: on the library (all five tabs, Search included) and the detail screens, which are where music is
+ * browsed; never over Intro, Settings, Sources or the Plex setup (nothing to browse there), nor over the full
+ * player and the queue (which ARE the player). Null — no entry yet — is false.
  */
 fun playerSurfaceAllowed(top: NavKey?): Boolean = when (top) {
-    Library, Search                                    -> true
+    Library                                            -> true
     is AlbumDetail, is ArtistDetail, is PlaylistDetail -> true
     else                                               -> false
 }
 
 /**
- * The library's four tabs, in suite order. Not navigation keys: the selected tab is saveable state inside the
- * [Library] entry, so switching tabs never touches the back stack.
+ * The library's five tabs, in suite order — the order of the bar's and the rails' items, Search in the CENTRE
+ * ([SuiteActionTab]). Not navigation keys: the selected tab is saveable state inside the [Library] entry, so
+ * switching tabs never touches the back stack.
  */
-enum class LibraryTab { TRACKS, ALBUMS, ARTISTS, PLAYLISTS }
+enum class LibraryTab { TRACKS, ALBUMS, SEARCH, ARTISTS, PLAYLISTS }
+
+/**
+ * The tab the suite draws as its action — inside an M3 Expressive shape instead of the selection pill — and
+ * places in the centre of the bar and the rails: Search.
+ */
+val SuiteActionTab: LibraryTab = LibraryTab.SEARCH
+
+/** What re-tapping the selected tab in the suite does. */
+enum class TabReselect {
+    /** The tab's list jumps back to the top. */
+    ScrollToTop,
+
+    /** The search field takes the focus and the keyboard rises (the first tap only shows the page). */
+    FocusSearchField,
+}
+
+/** What re-selecting [tab] does: Search focuses its field, every other tab scrolls its list to the top. */
+fun tabReselectFor(tab: LibraryTab): TabReselect =
+    if (tab == LibraryTab.SEARCH) TabReselect.FocusSearchField else TabReselect.ScrollToTop
 
 /** The tab the library opens on, and the one back returns to from the others. */
 val HomeLibraryTab: LibraryTab = LibraryTab.TRACKS
@@ -106,7 +124,7 @@ val HomeLibraryTab: LibraryTab = LibraryTab.TRACKS
  * from a tab returns home"), or null when back is not the library's to handle — on the home tab (back leaves
  * the app) and whenever the Library entry is not [resumed].
  *
- * The [resumed] gate matters during a (predictive) pop from Search or Settings: the Library entry is composed
+ * The [resumed] gate matters during a (predictive) pop from a detail or Settings: the Library entry is composed
  * underneath as the incoming screen, and a tab handler registered mid-gesture would otherwise outrank the
  * navigation host's and switch the tab instead of popping the screen. Navigation 3 resumes an entry only
  * once it is on top and its transition has settled.
@@ -152,7 +170,6 @@ val NavKeySerializersModule: SerializersModule = SerializersModule {
     polymorphic(NavKey::class) {
         subclass(Intro::class)
         subclass(Library::class)
-        subclass(Search::class)
         subclass(Settings::class)
         subclass(Player::class)
         subclass(Queue::class)

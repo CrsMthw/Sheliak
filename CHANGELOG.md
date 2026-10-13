@@ -76,3 +76,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recent searches); re-selecting the current library tab scrolls its list to the top.
 - Lint: the release report reads "0 errors, 1 warning" — the accepted `ExportedService` on the exported playback
   service, which Android Auto and the system controllers bind to.
+- M1 fix round 1 (after the M1 device pass): Search is the centre item of the navigation bar and rails, drawn on
+  an M3 Expressive shape that morphs while selected; a second tap focuses the field and raises the keyboard; the
+  bar or rail stays visible and there is no search FAB or blank-state hint any more.
+- Library: Tracks shows one "Most played" M3 Expressive multi-browse carousel with the title and artist on each
+  item; Albums is a list at every width; the artist page has Play and Shuffle, an Albums row newest first and the
+  artist's tracks; the long-press track menu is now a bottom sheet, replacing the dropdown menu whose back
+  gesture crashed the app; every long list has an alphabet fast scroller with a letter bubble; album, artist and
+  playlist pages open at the top.
+- The bottom fade sits where the content ends: above the navigation bar, directly above the mini bar when it
+  shows, and the mini bar rests on the keyboard on the Search tab.
+- Player: the mini bar's progress is a circular wavy ring around play / pause, the full player's seek bar is a
+  wavy line, and the shape behind play / pause turns while a track plays; the waves and the turn stop on pause.
+  The art is a centred hero carousel over the queue (a swipe back always plays the previous track). Lyra's
+  predictive-back fixes keep the art from vanishing after a cancelled back, and unfolding or folding with the
+  player open swaps between the full player and the pop-out card.
+- Plex: sign-in is one "Sign in with Plex" button with no code to read; the account is kept when the last server
+  is removed, and Settings → Manage sources gains "Forget Plex account"; server dots are a fixed green / grey;
+  covers re-load when Plex picks another connection or the network comes back.
+- 619 JVM unit tests.
+- Toolchain freshness (2026-10-13): Gradle 9.8.1, Compose BOM 2026.10.00 (Compose 1.13.0-beta01, Material 3
+  1.5.0-beta01), navigationevent 1.2.0 and the Kotlin 2.4.21 Gradle plugins; the only source change was a renamed
+  carousel parameter. The art swipe in the player no longer starts playback when paused, and folding with the pop-out
+  card open always opens the full player.

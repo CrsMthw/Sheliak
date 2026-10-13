@@ -5,6 +5,7 @@ import com.crsmthw.sheliak.data.provider.plex.PlexLibrary
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlexSetupFlowTest {
@@ -16,7 +17,7 @@ class PlexSetupFlowTest {
     @Test
     fun `the steps run in order`() {
         assertEquals(
-            listOf("ACCOUNT", "PIN", "SERVERS", "LOCAL_NETWORK", "LIBRARIES", "FINISHING", "DONE"),
+            listOf("ACCOUNT", "SIGN_IN", "SERVERS", "LOCAL_NETWORK", "LIBRARIES", "FINISHING", "DONE"),
             PlexSetupStep.entries.map { it.name },
         )
     }
@@ -40,7 +41,7 @@ class PlexSetupFlowTest {
 
     @Test
     fun `back from the first steps leaves the flow`() {
-        listOf(PlexSetupStep.ACCOUNT, PlexSetupStep.PIN, PlexSetupStep.SERVERS, PlexSetupStep.DONE).forEach { step ->
+        listOf(PlexSetupStep.ACCOUNT, PlexSetupStep.SIGN_IN, PlexSetupStep.SERVERS, PlexSetupStep.DONE).forEach { step ->
             assertEquals(PlexSetupBack.LEAVE, plexSetupBack(step), "$step")
         }
     }
@@ -82,9 +83,70 @@ class PlexSetupFlowTest {
     }
 
     @Test
-    fun `a fresh setup starts busy on the account check`() {
+    fun `a fresh setup starts busy on the account check, with nothing to open`() {
         val state = PlexSetupUiState()
         assertEquals(PlexSetupStep.ACCOUNT, state.step)
         assertTrue(state.busy)
+        assertEquals(PlexSignIn.IDLE, state.signIn)
+        assertNull(state.authUrl)
+        assertFalse(state.openAuth)
+    }
+
+    // ── Sign in (D1: no code is ever shown; one button, then a still waiting line) ──────────────────
+
+    @Test
+    fun `the setup state holds no PIN code at all`() {
+        val fields = PlexSetupUiState::class.java.declaredFields.filterNot { it.isSynthetic }.map { it.name.lowercase() }
+        assertTrue(fields.none { "code" in it || "pin" in it }, "$fields")
+    }
+
+    @Test
+    fun `idle the button starts a PIN`() {
+        assertEquals(PlexSignInTap.START, plexSignInTap(PlexSignIn.IDLE, authUrl = null))
+    }
+
+    @Test
+    fun `while a PIN is requested a second tap does nothing`() {
+        assertEquals(PlexSignInTap.IGNORE, plexSignInTap(PlexSignIn.STARTING, authUrl = null))
+    }
+
+    @Test
+    fun `while waiting the button reopens the live page, or starts again without one`() {
+        assertEquals(PlexSignInTap.REOPEN, plexSignInTap(PlexSignIn.WAITING, authUrl = "https://app.plex.tv/auth#?x"))
+        assertEquals(PlexSignInTap.START, plexSignInTap(PlexSignIn.WAITING, authUrl = null))
+    }
+
+    @Test
+    fun `idle shows only the button`() {
+        assertEquals(PlexSignInView(button = true, buttonEnabled = true, waiting = false), plexSignInView(PlexSignIn.IDLE, null))
+    }
+
+    @Test
+    fun `starting holds the button, without the waiting line`() {
+        assertEquals(
+            PlexSignInView(button = true, buttonEnabled = false, waiting = false),
+            plexSignInView(PlexSignIn.STARTING, null),
+        )
+    }
+
+    @Test
+    fun `waiting shows the still line under a button that still works`() {
+        assertEquals(
+            PlexSignInView(button = true, buttonEnabled = true, waiting = true),
+            plexSignInView(PlexSignIn.WAITING, null),
+        )
+    }
+
+    @Test
+    fun `a failure shows only its error and Retry, in every phase`() {
+        PlexSignIn.entries.forEach { phase ->
+            ProviderError.entries.forEach { error ->
+                assertEquals(
+                    PlexSignInView(button = false, buttonEnabled = false, waiting = false),
+                    plexSignInView(phase, error),
+                    "$phase / $error",
+                )
+            }
+        }
     }
 }

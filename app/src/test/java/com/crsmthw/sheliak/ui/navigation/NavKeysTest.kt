@@ -19,7 +19,7 @@ class NavKeysTest {
     @Test
     fun `AllNavKeys lists every key exactly once`() {
         assertEquals(
-            listOf(Intro, Library, Search, Settings, Player, Queue, Sources, PlexSetup),
+            listOf(Intro, Library, Settings, Player, Queue, Sources, PlexSetup),
             AllNavKeys.filter { it !is AlbumDetail && it !is ArtistDetail && it !is PlaylistDetail },
         )
         assertEquals(1, AllNavKeys.count { it is AlbumDetail })
@@ -46,8 +46,8 @@ class NavKeysTest {
     // ── Player surface ──────────────────────────────────────────────────────
 
     @Test
-    fun `the player surface shows on the library, search and the details`() {
-        listOf(Library, Search, AlbumDetail("p", "1"), ArtistDetail("p", "2"), PlaylistDetail(3L)).forEach { key ->
+    fun `the player surface shows on the library, its Search tab included, and the details`() {
+        listOf(Library, AlbumDetail("p", "1"), ArtistDetail("p", "2"), PlaylistDetail(3L)).forEach { key ->
             assertTrue(playerSurfaceAllowed(key), "$key")
         }
     }
@@ -67,17 +67,35 @@ class NavKeysTest {
     @Test
     fun `every key is decided by the player surface rule`() {
         val shown = AllNavKeys.filter(::playerSurfaceAllowed).map { it::class }.toSet()
-        assertEquals(setOf(Library::class, Search::class, AlbumDetail::class, ArtistDetail::class, PlaylistDetail::class), shown)
+        assertEquals(setOf(Library::class, AlbumDetail::class, ArtistDetail::class, PlaylistDetail::class), shown)
     }
 
     // ── Library tabs ────────────────────────────────────────────────────────
 
     @Test
-    fun `the library tabs are in suite order`() {
+    fun `the library tabs are in suite order, Search in the centre`() {
         assertEquals(
-            listOf(LibraryTab.TRACKS, LibraryTab.ALBUMS, LibraryTab.ARTISTS, LibraryTab.PLAYLISTS),
+            listOf(LibraryTab.TRACKS, LibraryTab.ALBUMS, LibraryTab.SEARCH, LibraryTab.ARTISTS, LibraryTab.PLAYLISTS),
             LibraryTab.entries,
         )
+    }
+
+    @Test
+    fun `the suite action is Search, the centre item`() {
+        assertEquals(LibraryTab.SEARCH, SuiteActionTab)
+        assertEquals(LibraryTab.entries.size / 2, LibraryTab.entries.indexOf(SuiteActionTab))
+    }
+
+    @Test
+    fun `re-selecting Search focuses its field`() {
+        assertEquals(TabReselect.FocusSearchField, tabReselectFor(LibraryTab.SEARCH))
+    }
+
+    @Test
+    fun `re-selecting any other tab scrolls it to the top`() {
+        listOf(LibraryTab.TRACKS, LibraryTab.ALBUMS, LibraryTab.ARTISTS, LibraryTab.PLAYLISTS).forEach { tab ->
+            assertEquals(TabReselect.ScrollToTop, tabReselectFor(tab), "$tab")
+        }
     }
 
     @Test
@@ -87,7 +105,7 @@ class NavKeysTest {
 
     @Test
     fun `back from any other tab returns to Tracks`() {
-        listOf(LibraryTab.ALBUMS, LibraryTab.ARTISTS, LibraryTab.PLAYLISTS).forEach { tab ->
+        listOf(LibraryTab.ALBUMS, LibraryTab.SEARCH, LibraryTab.ARTISTS, LibraryTab.PLAYLISTS).forEach { tab ->
             assertEquals(LibraryTab.TRACKS, libraryTabOnBack(tab, resumed = true), "$tab")
         }
     }
@@ -131,15 +149,15 @@ class NavKeysTest {
     @Test
     fun `replaceWith pushes onto Library`() {
         val stack = mutableListOf<NavKey>(Library)
-        stack.replaceWith(listOf(Library, Search))
-        assertEquals(listOf(Library, Search), stack)
+        stack.replaceWith(listOf(Library, Settings))
+        assertEquals(listOf(Library, Settings), stack)
     }
 
     @Test
     fun `replaceWith swaps the screen on top of Library`() {
-        val stack = mutableListOf(Library, Search)
-        stack.replaceWith(listOf(Library, Settings))
-        assertEquals(listOf(Library, Settings), stack)
+        val stack = mutableListOf(Library, Settings)
+        stack.replaceWith(listOf(Library, PlexSetup))
+        assertEquals(listOf(Library, PlexSetup), stack)
     }
 
     @Test
@@ -166,9 +184,9 @@ class NavKeysTest {
 
     @Test
     fun `replaceWith does not rewrite positions that already match`() {
-        val stack = ObservedList(mutableListOf(Library, Search))
-        stack.replaceWith(listOf(Library, Settings))
-        assertEquals(listOf(Library, Settings), stack)
+        val stack = ObservedList(mutableListOf(Library, Settings))
+        stack.replaceWith(listOf(Library, Queue))
+        assertEquals(listOf(Library, Queue), stack)
         assertEquals(listOf(1), stack.setIndices)
     }
 

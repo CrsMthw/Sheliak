@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Dns
@@ -56,10 +57,12 @@ import com.crsmthw.sheliak.util.horizontalSystemBarsPadding
 import com.crsmthw.sheliak.util.press
 
 /**
- * Settings → Sources: every configured source — its name, track count and sync status ("Syncing… N of M",
- * "Synced 5 minutes ago", "Sync failed: …") — with Sync now and Remove (behind a confirmation), then "Add Plex
- * server", which opens the Plex setup. The Settings anatomy: [RootTopBar] with a back arrow over a scrolling
- * column, the bar's connection outside the scroller.
+ * Settings → Sources: every configured source — its name, track count and sync status ("Not synced yet",
+ * "Syncing… N of M", "Synced 5 minutes ago", "Sync failed: …") — with Sync now and Remove (behind a
+ * confirmation), then "Add Plex server", which opens the Plex setup, and — while a plex.tv account token is
+ * stored — the "Plex account" section with "Forget Plex account" (behind a confirmation). The account outlives
+ * its servers: removing the last one keeps it, so adding a server again skips the sign-in. The Settings anatomy:
+ * [RootTopBar] with a back arrow over a scrolling column, the bar's connection outside the scroller.
  */
 @Composable
 fun SourcesScreen(
@@ -69,12 +72,14 @@ fun SourcesScreen(
     modifier : Modifier = Modifier,
 ) {
     val sources by viewModel.sources.collectAsStateWithLifecycle()
+    val plexSignedIn by viewModel.plexSignedIn.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     val barState = rememberTopAppBarState()
     val paneColor = MaterialTheme.colorScheme.background
     // The source awaiting the user's confirmation to remove; saveable, so the dialog survives a rotation.
     var pendingRemoval by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingForget by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         modifier            = modifier,
@@ -128,6 +133,16 @@ fun SourcesScreen(
                             subtitle = stringResource(R.string.sources_add_plex_desc),
                             onClick  = onAddPlex,
                         )
+                        if (plexSignedIn) {
+                            SettingsSectionHeader(stringResource(R.string.sources_section_account))
+                            SettingsItem(
+                                icon      = Icons.AutoMirrored.Outlined.Logout,
+                                title     = stringResource(R.string.sources_forget_account),
+                                subtitle  = stringResource(R.string.sources_forget_account_desc),
+                                onClick   = { pendingForget = true },
+                                tintError = true,
+                            )
+                        }
                     }
                     BottomFadeSpacer()
                 }
@@ -162,11 +177,44 @@ fun SourcesScreen(
         )
     }
 
+    if (pendingForget && plexSignedIn) {
+        AlertDialog(
+            onDismissRequest = { pendingForget = false },
+            title            = { Text(stringResource(R.string.sources_forget_account_title)) },
+            text             = { Text(stringResource(R.string.sources_forget_account_body)) },
+            confirmButton    = {
+                TextButton(
+                    onClick = {
+                        haptics.confirm()
+                        pendingForget = false
+                        viewModel.forgetPlexAccount()
+                    },
+                ) {
+                    Text(stringResource(R.string.sources_forget_account_confirm), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton    = {
+                TextButton(onClick = { haptics.press(); pendingForget = false }) {
+                    Text(stringResource(R.string.sources_cancel))
+                }
+            },
+        )
+    }
+
     error?.let { failure ->
         AlertDialog(
             onDismissRequest = viewModel::dismissError,
-            title            = { Text(stringResource(R.string.sources_remove_failed)) },
-            text             = { Text(stringResource(providerErrorMessage(failure))) },
+            title            = {
+                Text(
+                    stringResource(
+                        when (failure.action) {
+                            SourcesAction.REMOVE         -> R.string.sources_remove_failed
+                            SourcesAction.FORGET_ACCOUNT -> R.string.sources_forget_account_failed
+                        },
+                    ),
+                )
+            },
+            text             = { Text(stringResource(providerErrorMessage(failure.error))) },
             confirmButton    = {
                 TextButton(onClick = { haptics.press(); viewModel.dismissError() }) {
                     Text(stringResource(R.string.sources_ok))

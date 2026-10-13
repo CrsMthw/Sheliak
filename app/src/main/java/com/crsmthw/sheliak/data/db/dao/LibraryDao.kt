@@ -22,6 +22,16 @@ private const val ALBUMS_REP =
 private const val ARTISTS_REP =
     "SELECT rid FROM (SELECT rowid AS rid, MAX(album_count) AS q FROM artists GROUP BY artist_key)"
 
+/**
+ * An artist's tracks, album by album: the album's year newest first (SQLite sorts NULL last under DESC, so albums
+ * with no year come last, as in `artistAlbums`), the album, then disc and track number. `t` is the track, `a` its
+ * album (LEFT JOINed — null when the album row is missing, hence the fallbacks to the track's own fields). The
+ * album's ids break a tie between two albums with the same year and sort title.
+ */
+private const val ARTIST_TRACKS_ORDER =
+    "COALESCE(a.year, t.year) DESC, COALESCE(a.title_sort, t.album_title), t.album_pid, t.album_iid, " +
+        "t.disc_no, t.track_no, t.title_sort"
+
 @Dao
 interface LibraryDao {
 
@@ -115,6 +125,43 @@ interface LibraryDao {
             "ORDER BY year DESC, title_sort",
     )
     fun artistAlbumsMerged(artistKey: String): Flow<List<AlbumEntity>>
+
+    /**
+     * The artist's tracks: those credited to the artist, plus every track of the artist's albums (a compilation's
+     * guest track, a featured credit). Ordered like the artist's albums — the album's year newest first (no year
+     * last), then the album, then disc and track number — so the list reads album by album. The LEFT JOIN keeps a
+     * track whose album row is missing; it falls back to its own year and album title.
+     */
+    @Query(
+        "SELECT t.* FROM tracks t LEFT JOIN albums a ON a.provider_id = t.album_pid AND a.item_id = t.album_iid " +
+            "WHERE t.rowid IN (" +
+            "SELECT t1.rowid FROM tracks t1 WHERE t1.artist_pid = :providerId AND t1.artist_iid = :itemId " +
+            "UNION " +
+            "SELECT t2.rowid FROM albums a2 JOIN tracks t2 ON t2.album_pid = a2.provider_id AND t2.album_iid = a2.item_id " +
+            "WHERE a2.artist_pid = :providerId AND a2.artist_iid = :itemId) " +
+            "ORDER BY $ARTIST_TRACKS_ORDER",
+    )
+    fun artistTracks(providerId: String, itemId: String): Flow<List<TrackEntity>>
+
+    /**
+     * [artistTracks] across every artist sharing [artistKey]: the tracks of the albums with that `artist_key`
+     * plus the tracks credited to an artist row with that key (tracks carry no `artist_key` of their own), one
+     * representative per recording (`track_key`, the highest bit rate — the merged views' rule).
+     */
+    @Query(
+        "SELECT t.* FROM tracks t LEFT JOIN albums a ON a.provider_id = t.album_pid AND a.item_id = t.album_iid " +
+            "WHERE t.rowid IN (" +
+            "SELECT rid FROM (SELECT t2.rowid AS rid, MAX(COALESCE(t2.bitrate_kbps, 0)) AS q FROM tracks t2 " +
+            "WHERE t2.rowid IN (" +
+            "SELECT t3.rowid FROM albums a3 JOIN tracks t3 ON t3.album_pid = a3.provider_id AND t3.album_iid = a3.item_id " +
+            "WHERE a3.artist_key = :artistKey " +
+            "UNION " +
+            "SELECT t4.rowid FROM artists r4 JOIN tracks t4 ON t4.artist_pid = r4.provider_id AND t4.artist_iid = r4.item_id " +
+            "WHERE r4.artist_key = :artistKey) " +
+            "GROUP BY t2.track_key)) " +
+            "ORDER BY $ARTIST_TRACKS_ORDER",
+    )
+    fun artistTracksMerged(artistKey: String): Flow<List<TrackEntity>>
 
     // ── Carousels ───────────────────────────────────────────────────────────
 

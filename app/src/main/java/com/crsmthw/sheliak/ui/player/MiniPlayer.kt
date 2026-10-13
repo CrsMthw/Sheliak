@@ -2,6 +2,7 @@ package com.crsmthw.sheliak.ui.player
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Transition
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -11,7 +12,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,11 +20,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -51,11 +52,17 @@ import com.crsmthw.sheliak.util.screenTransitionSpec
 /** Non-snapshot cell for the last track the bar showed (written and read in the same composition). */
 private class LastTrackHolder(var value: Track?)
 
+/** The wavy progress ring around the bar's play / pause button. */
+private val MiniRingSize = 48.dp
+
+/** The play / pause and next buttons inside the bar. */
+private val MiniButtonSize = 40.dp
+
 /**
  * The mini player: 48dp art (the `"album-art"` shared element), the title and artist on one line each, play /
- * pause and next, and a thin progress line fed by the position ticker. Lyra's bar — a rounded card on
- * `surfaceContainerHigh` washed with the art's edge colour — minus the device picker: the bar never had an
- * Output slot (DESIGN §8.1 Q10).
+ * pause inside Material 3 Expressive's circular wavy progress ring (Cris, M1 item 48), and next. Lyra's bar — a
+ * rounded card on `surfaceContainerHigh` washed with the art's edge colour — minus the device picker: the bar
+ * never had an Output slot (DESIGN §8.1 Q10).
  *
  * Its presence is [barTransition], a child of `PlayerSurfaceHost`'s one seekable transition, so the bar slides
  * in and out with a predictive-back gesture and its own `AnimatedVisibility` is the visibility scope its art
@@ -66,6 +73,8 @@ private class LastTrackHolder(var value: Track?)
  *   sits at, so it slides fully out past the window edge.
  * @param onHeightMeasured the bar's measured height in px, margins included — the host's
  *   `LocalPlayerSurfaceInset`.
+ * @param artMayMatch whether the art's permanent `"album-art"` registration may match right now (the host's
+ *   `SharedContentConfig` gate: a full player or the card must be part of the picture).
  */
 @Composable
 fun MiniPlayer(
@@ -79,6 +88,7 @@ fun MiniPlayer(
     onExpand        : () -> Unit,
     onHeightMeasured: (Int) -> Unit,
     modifier        : Modifier = Modifier,
+    artMayMatch     : Boolean = true,
 ) {
     val haptics   = LocalHapticFeedback.current
     val lastTrack = remember { LastTrackHolder(track) }
@@ -92,6 +102,13 @@ fun MiniPlayer(
         enter    = slideInVertically(screenTransitionSpec<IntOffset>()) { it + slideDistancePx },
         exit     = slideOutVertically(screenTransitionSpec<IntOffset>()) { it + slideDistancePx },
     ) {
+        // Lyra's PreEnter bail-out (DESIGN §5.1): compose NOTHING unless the bar is genuinely part of the current
+        // or the target state. AnimatedVisibility also composes its content while its transition reports initial
+        // value animations — and with the bar and the card as two children of ONE transition, an interrupted
+        // change on the card sets that here too. The bar would then compose in PreEnter and register a second,
+        // non-target "album-art" participant, which the match would take for the outgoing copy: a wrong flight.
+        if (!barTransition.currentState && !barTransition.targetState) return@AnimatedVisibility
+
         val shownTrack = shown ?: return@AnimatedVisibility
         val shape      = RoundedCornerShape(20.dp)
         Box(
@@ -105,84 +122,97 @@ fun MiniPlayer(
                 .background(tints.edge.copy(alpha = 0.10f))
                 .clickable(onClickLabel = openLabel) { haptics.confirm(); onExpand() },
         ) {
-            Column {
-                Row(
-                    modifier          = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Artwork(
-                        art                = shownTrack.art,
-                        sizePx             = PLAYER_ART_SIZE_PX,
-                        contentDescription = null,   // the title beside it says what it is
-                        shape              = RoundedCornerShape(10.dp),
-                        modifier           = Modifier
-                            .albumArtSharedElement(this@AnimatedVisibility)
-                            .size(48.dp),
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text     = shownTrack.title,
-                            style    = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text     = shownTrack.artistName.takeIf { it.isNotBlank() }
-                                ?: stringResource(R.string.player_unknown_artist),
-                            style    = MaterialTheme.typography.bodySmall,
-                            color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Spacer(Modifier.width(4.dp))
-                    IconButton(onClick = { haptics.press(); player.playPause() }) {
-                        Icon(
-                            imageVector        = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = stringResource(if (isPlaying) R.string.player_pause else R.string.player_play),
-                        )
-                    }
-                    IconButton(onClick = { haptics.press(); player.next() }) {
-                        Icon(Icons.Default.SkipNext, contentDescription = stringResource(R.string.player_next))
-                    }
-                }
-                MiniProgressLine(
-                    player     = player,
-                    durationMs = durationMs,
-                    color      = tints.surfaceAccent,
-                    modifier   = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+            Row(
+                modifier          = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Artwork(
+                    art                = shownTrack.art,
+                    sizePx             = PLAYER_ART_SIZE_PX,
+                    contentDescription = null,   // the title beside it says what it is
+                    shape              = RoundedCornerShape(10.dp),
+                    modifier           = Modifier
+                        .albumArtSharedElement(this@AnimatedVisibility, artMayMatch)
+                        .size(48.dp),
                 )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text     = shownTrack.title,
+                        style    = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text     = shownTrack.artistName.takeIf { it.isNotBlank() }
+                            ?: stringResource(R.string.player_unknown_artist),
+                        style    = MaterialTheme.typography.bodySmall,
+                        color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+                PlayPauseRing(
+                    player      = player,
+                    isPlaying   = isPlaying,
+                    durationMs  = durationMs,
+                    color       = tints.surfaceAccent,
+                    onPlayPause = { haptics.press(); player.playPause() },
+                )
+                IconButton(
+                    onClick  = { haptics.press(); player.next() },
+                    modifier = Modifier.size(MiniButtonSize),
+                ) {
+                    Icon(Icons.Default.SkipNext, contentDescription = stringResource(R.string.player_next))
+                }
             }
         }
     }
 }
 
 /**
- * The bar's thin progress line. Collects the position ticker itself — composed only while the bar is on
- * screen, so the ticker runs only then — and reads it in the indicator's draw lambda, so a tick redraws the
- * line and recomposes nothing. Flat, determinate, no stop dot: a hairline, not a wavy indicator (whose wave
- * would animate forever).
+ * Play / pause wrapped in [CircularWavyProgressIndicator]: the ring is the track's progress. It collects the
+ * position ticker itself — composed only while the bar is on screen, so the ticker runs only then — and reads it
+ * in the indicator's progress lambda, so a tick redraws the ring and recomposes nothing.
+ *
+ * The wave is bound to playback (CLAUDE.md rule 6): amplitude 1 while playing, flat while paused (the change on
+ * the finite spec), and its travel speed drops to 0 once flat. Material's own amplitude curve keeps the ring flat
+ * in the first 10 % and the last 5 % of a track.
  */
 @Composable
-private fun MiniProgressLine(
-    player    : PlayerStateManager,
-    durationMs: Long,
-    color     : Color,
-    modifier  : Modifier = Modifier,
+private fun PlayPauseRing(
+    player     : PlayerStateManager,
+    isPlaying  : Boolean,
+    durationMs : Long,
+    color      : Color,
+    onPlayPause: () -> Unit,
 ) {
     val positionFlow = remember(player) { player.position() }
     val position by positionFlow.collectAsStateWithLifecycle(initialValue = 0L)
-    LinearProgressIndicator(
-        progress          = { progressFraction(position, durationMs) },
-        modifier          = modifier.height(2.dp),
-        color             = color,
-        trackColor        = color.copy(alpha = 0.24f),
-        gapSize           = 0.dp,
-        drawStopIndicator = {},
+    val waveAmplitude by animateFloatAsState(
+        targetValue   = if (isPlaying) 1f else 0f,
+        animationSpec = screenTransitionSpec(),
+        label         = "miniWave",
     )
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(MiniRingSize)) {
+        CircularWavyProgressIndicator(
+            progress   = { progressFraction(position, durationMs) },
+            modifier   = Modifier.size(MiniRingSize),
+            color      = color,
+            trackColor = color.copy(alpha = 0.24f),
+            amplitude  = { progress -> waveAmplitude * WavyProgressIndicatorDefaults.indicatorAmplitude(progress) },
+            wavelength = WavyProgressIndicatorDefaults.CircularWavelength,
+            // Travels while playing and while the wave is still flattening; 0 once flat (no offset animation).
+            waveSpeed  = if (isPlaying || waveAmplitude > 0f) WavyProgressIndicatorDefaults.CircularWavelength else 0.dp,
+        )
+        IconButton(onClick = onPlayPause, modifier = Modifier.size(MiniButtonSize)) {
+            Icon(
+                imageVector        = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = stringResource(if (isPlaying) R.string.player_pause else R.string.player_play),
+            )
+        }
+    }
 }
