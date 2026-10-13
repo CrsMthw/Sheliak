@@ -51,7 +51,6 @@ private val CardMinArtHeight = 60.dp
  *
  * @param visibilityScope the panel's `AnimatedVisibility`, the scope the art morphs on (mini bar ↔ card, card ↔
  *   full player).
- * @param artMayMatch the host's gate on the art's `"album-art"` registration.
  */
 @Composable
 fun PlayerCardContent(
@@ -59,7 +58,6 @@ fun PlayerCardContent(
     state          : PlayerState,
     tints          : PlayerTints,
     visibilityScope: AnimatedVisibilityScope?,
-    artMayMatch    : Boolean,
     onClose        : () -> Unit,
     onFullScreen   : () -> Unit,
     onOpenQueue    : () -> Unit,
@@ -104,7 +102,11 @@ fun PlayerCardContent(
                 queue           = state.queue,
                 queueIndex      = state.queueIndex,
                 visibilityScope = visibilityScope,
-                artMayMatch     = artMayMatch,
+                // Never gated (fix round 1b): enabled at rest, the card's art is the settled participant every
+                // flight out of the card starts from. Gated, it was enabled only from inside this
+                // BoxWithConstraints and the carousel's pager — after the incoming bar — and the flight started at
+                // the bar instead (PlayerSurfaceHost, the gating block).
+                artMayMatch     = true,
                 availableWidth  = artAreaWidth,
                 availableHeight = artAreaHeight,
                 onSeekTo        = player::seekToQueueIndex,

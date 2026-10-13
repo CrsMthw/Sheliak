@@ -3,9 +3,13 @@ package com.crsmthw.sheliak.ui.player
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.SharedTransitionScope.SharedContentState
+import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.IntState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -15,9 +19,11 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.crsmthw.sheliak.ui.navigation.LocalNavSharedTransitionScope
 import com.crsmthw.sheliak.util.artBoundsTransform
+import kotlinx.coroutines.delay
 
 /*
  * The player surfaces' motion and geometry constants, the `"album-art"` key and gate the host provides, and the
@@ -49,8 +55,8 @@ val LocalPlayerArtKey: ProvidableCompositionLocal<Any> = compositionLocalOf { AL
  *   player's art must not fly into the card: the card is simply there); true again once that full player has
  *   left composition.
  * @property composedFullPlayers how many `PlayerScreen`s are composed — a leaving one counts until its exit
- *   transition ends. The floating surfaces' art may match a full player only while this, or the top entry, says
- *   one exists ([fullPlayerPresent]).
+ *   transition ends. The mini bar's art may match a full player only while this, or the top entry, says one
+ *   exists ([fullPlayerPresent]).
  */
 @Stable
 class PlayerArtGate {
@@ -146,4 +152,64 @@ fun Modifier.albumArtSharedElement(
             boundsTransform         = artBoundsTransform(),
         )
     }
+}
+
+/**
+ * The wavy indicators' binding to playback — the ONE isPlaying-bound motion besides the play button's turn
+ * (CLAUDE.md rule 6): the mini bar's `CircularWavyProgressIndicator` and the seek bar's
+ * `LinearWavyProgressIndicator` wave while a track plays and go flat on pause, the wave's phase never jumping.
+ * Built on what Material 1.5.0-beta01 actually does (docs/MOTION.md, "The wave"; rules in WaveRules.kt):
+ *
+ * - **[amplitude] is a TARGET, not an animation.** Material evaluates the lambda in its draw cache and animates any
+ *   change itself (its own 500 ms tween). The lambda reads [isPlaying] from a snapshot state, so a play / pause
+ *   re-runs Material's cache and hands it the new step target (playing → the track's curve, paused → 0). It is ONE
+ *   instance for the indicator's life. Feeding Material a per-frame animated value does NOT work: its first frame
+ *   starts a 500 ms tween and every later value — the final 0 included — is dropped while that tween runs.
+ * - **The re-statement**: Material also drops a target that changes while its previous tween still runs (a quick
+ *   pause → play). [WAVE_RESAMPLE_MILLIS] after every change the lambda's [resample] read moves once, so Material
+ *   re-runs it and picks up the current target after that tween has ended.
+ * - **[linearSpeed]**: a speed of 0 resets the linear wave's phase to 0, which is invisible only while the wave is
+ *   flat. So the linear wave keeps travelling while it flattens and stops [WAVE_STILL_MILLIS] after a pause, when it
+ *   is certainly flat; a play restores the speed at once (the wave grows from flat, so no phase can be seen to
+ *   jump). The circular indicator stops its own travel when its amplitude reaches 0 and resumes from the same
+ *   phase, so it keeps one constant speed.
+ */
+@Stable
+class PlaybackWave internal constructor(
+    private val isPlaying: State<Boolean>,
+    private val resample : IntState,
+    private val still    : State<Boolean>,
+) {
+    /** Material's `amplitude` lambda: the step target for this point of the track ([waveAmplitudeTarget]). */
+    val amplitude: (Float) -> Float = { progress ->
+        // Read for its invalidation only: moving it re-runs Material's draw cache, which re-reads the target.
+        resample.intValue
+        waveAmplitudeTarget(isPlaying.value, WavyProgressIndicatorDefaults.indicatorAmplitude(progress))
+    }
+
+    /** The linear indicator's `waveSpeed`: one [wavelength] per second until a paused wave is certainly flat. */
+    fun linearSpeed(wavelength: Dp): Dp = linearWaveSpeed(isPlaying.value, still.value, wavelength)
+}
+
+/**
+ * The [PlaybackWave] for [isPlaying]. One finite timer per play / pause change (the re-statement, and for a pause
+ * the linear stop), cancelled by the next change — never a loop or a poll.
+ */
+@Composable
+fun rememberPlaybackWave(isPlaying: Boolean): PlaybackWave {
+    val playing  = rememberUpdatedState(isPlaying)
+    val resample = remember { mutableIntStateOf(0) }
+    // Composed paused: Material creates its amplitude AT the target (0) on its first draw, so the wave is flat and
+    // still from the start.
+    val still    = remember { mutableStateOf(!isPlaying) }
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) still.value = false
+        delay(WAVE_RESAMPLE_MILLIS.toLong())
+        resample.intValue++
+        if (!isPlaying) {
+            delay((WAVE_STILL_MILLIS - WAVE_RESAMPLE_MILLIS).toLong())
+            still.value = true
+        }
+    }
+    return remember { PlaybackWave(isPlaying = playing, resample = resample, still = still) }
 }

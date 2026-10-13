@@ -99,3 +99,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   1.5.0-beta01), navigationevent 1.2.0 and the Kotlin 2.4.21 Gradle plugins; the only source change was a renamed
   carousel parameter. The art swipe in the player no longer starts playback when paused, and folding with the pop-out
   card open always opens the full player.
+- Fix round 1b (Cris's quick look, 2026-10-13): the seek bar is the wavy line alone (no thumb) and every wave
+  flattens smoothly on pause and grows back on play, without a phase jump (Material drops amplitude targets during
+  its own tween, so the target is stated as a step and restated once; registered as a provisional workaround); the
+  pop-out card's art is always registered for the shared element, so the card-to-mini-bar flight works for plain
+  and predictive back; covers draw from memory on the first frame, using the nearest size already loaded while a
+  bigger one loads, so the placeholder no longer flashes when a detail opens, a track starts or the player closes.

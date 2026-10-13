@@ -3,7 +3,6 @@ package com.crsmthw.sheliak.ui.player
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /*
  * The pure rules behind the art carousel (AlbumArtCarousel) and the wavy seek bar: which carousel item is the
@@ -120,16 +119,6 @@ fun heroCarouselGeometry(availableWidth: Dp, availableHeight: Dp, peek: Dp, spac
 /** Where a touch at [x] (px) on a seek bar [widthPx] wide lands, as a 0..1 share of the track. */
 fun seekFractionAt(x: Float, widthPx: Float): Float =
     if (widthPx <= 0f) 0f else (x / widthPx).coerceIn(0f, 1f)
-
-/**
- * The seek thumb's left edge (px) for [fraction] on a track [widthPx] wide: centred on the progress point, kept
- * inside the track at both ends.
- */
-fun seekThumbOffset(fraction: Float, widthPx: Int, thumbWidthPx: Int): Int {
-    val room = (widthPx - thumbWidthPx).coerceAtLeast(0)
-    val centred = (fraction.coerceIn(0f, 1f) * widthPx - thumbWidthPx / 2f).roundToInt()
-    return centred.coerceIn(0, room)
-}
 
 /** The seek bar's haptic notch for [fraction]: one tick per [notch] of the track while dragging (Lyra's 5 %). */
 fun seekNotch(fraction: Float, notch: Float): Int = (fraction.coerceIn(0f, 1f) / notch).toInt()

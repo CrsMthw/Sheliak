@@ -183,8 +183,10 @@ private val PanelBottomMargin = 16.dp
  * - `"album-art#<generation>"` ([LocalPlayerArtKey]): the generation advances at the first quiet moment after an
  *   ABANDONED seek, and at no other settle ([ArtKeyGeneration]).
  * - The `PreEnter` bail-outs in [MiniPlayer] / [PlayerPopOutPanel].
- * - `SharedContentConfig` gating: every `"album-art"` registration is permanent; the bar's and the card's may
- *   match only while a partner exists, the full player's not while a fold swap replaces it ([PlayerArtGate]).
+ * - `SharedContentConfig` gating: every `"album-art"` registration is permanent; the bar's may match only while
+ *   a partner exists, the full player's not while a fold swap replaces it ([PlayerArtGate]). The card's is NOT
+ *   gated (Lyra's card carried no config either): it must be the enabled, settled participant at rest, so the
+ *   flight out of it always starts from it (fix round 1b — see the gating block below).
  *
  * ### Crossing the pop-out line
  * When the window becomes able to host the card while the full player is on top, the host closes the player
@@ -429,20 +431,28 @@ fun PlayerSurfaceHost(
     }
 
     // ── SharedContentConfig gating of the permanent registrations ─────────────────────────────────────────
-    // The bar's and the card's art may MATCH only while a partner is part of the picture: the full player (on
-    // top, or still leaving), or the other floating surface in the surface transition — counted from the pass
-    // that decides it (surfaceTarget), before the transition itself is told. The full player's own registration
-    // is gated by artGate.fullPlayerMayMatch (the fold swap).
+    // The bar's art may MATCH only while a partner is part of the picture: the full player (on top, or still
+    // leaving), or the card in the surface transition — counted from the pass that decides it (surfaceTarget),
+    // before the transition itself is told. The full player's own registration is gated by
+    // artGate.fullPlayerMayMatch (the fold swap).
+    //
+    // The CARD's registration is never gated (fix round 1b, Cris: "card → bar disappears the album art, predictive
+    // and plain back"). Gated off at rest, it was re-enabled only from inside the card's two layout-phase
+    // subcompositions (BoxWithConstraints, then the carousel's pager item) — AFTER the bar, composed in this pass,
+    // had registered and been enabled. In that gap compose-animation 1.13's SharedTransitionStateMachine (no
+    // transition active yet) re-points its "last target" at the bar — the only entry whose target is visible once
+    // the card's has flipped — so when the card is enabled a moment later the match is configured with the BAR's
+    // own bounds as the start (`obtainBoundsFromLastTarget`): the flight starts at the bar, sliding in below the
+    // window edge, while the card's copy is hidden as the outgoing participant — the art vanishes. Enabled at rest,
+    // the card IS the settled target when the bar arrives, so the match starts from the card's art, whatever the
+    // composition order. Harmless otherwise: the card is composed only while it shows or moves, and the only
+    // partners it can meet are the bar (gated above) and the full player (gated by the fold swap) — the flights
+    // the card exists for. The full player's art, enabled at rest the same way, is why full player → bar always flew.
     val fullPlayer      = fullPlayerPresent(topIsPlayer = playerOnTop, composedFullPlayers = artGate.composedFullPlayers)
     val barArtMayMatch  = floatingArtMayMatch(
         fullPlayerPresent        = fullPlayer,
         otherSurfaceInTransition = surfaceTarget == PlayerSurface.Panel || panelTransition.currentState ||
             panelTransition.targetState || panelTransition.isRunning,
-    )
-    val cardArtMayMatch = floatingArtMayMatch(
-        fullPlayerPresent        = fullPlayer,
-        otherSurfaceInTransition = surfaceTarget == PlayerSurface.Bar || barTransition.currentState ||
-            barTransition.targetState || barTransition.isRunning,
     )
 
     when {
@@ -658,7 +668,6 @@ fun PlayerSurfaceHost(
                     onClose         = { closePanel() },
                     onFullScreen    = onOpenPlayer,
                     onOpenQueue     = onOpenQueue,
-                    artMayMatch     = cardArtMayMatch,
                     modifier        = Modifier
                         .align(Alignment.BottomEnd)
                         .windowInsetsPadding(

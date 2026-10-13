@@ -202,9 +202,10 @@ fun fullPlayerPresent(topIsPlayer: Boolean, composedFullPlayers: Int): Boolean =
     topIsPlayer || composedFullPlayers > 0
 
 /**
- * Whether a floating surface's art (the mini bar's or the card's) may MATCH: only while a partner exists — the
- * full player ([fullPlayerPresent]) or the other floating surface taking part in the surface transition
- * ([otherSurfaceInTransition]). The registration itself is permanent; only this enabled flag moves.
+ * Whether the mini bar's art may MATCH: only while a partner exists — the full player ([fullPlayerPresent]) or the
+ * pop-out card taking part in the surface transition ([otherSurfaceInTransition]). The registration itself is
+ * permanent; only this enabled flag moves. (The card's own registration is not gated since fix round 1b: it must
+ * be the enabled, settled participant at rest — see PlayerSurfaceHost.)
  */
 fun floatingArtMayMatch(fullPlayerPresent: Boolean, otherSurfaceInTransition: Boolean): Boolean =
     fullPlayerPresent || otherSurfaceInTransition

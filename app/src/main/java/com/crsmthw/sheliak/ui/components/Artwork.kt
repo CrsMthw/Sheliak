@@ -1,5 +1,6 @@
 package com.crsmthw.sheliak.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -18,7 +19,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
+import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
+import coil3.compose.asPainter
 import coil3.memory.MemoryCache
 import coil3.request.ImageRequest
 import coil3.request.crossfade
@@ -65,6 +68,13 @@ val LocalArtResolver = staticCompositionLocalOf<ArtResolver> { ArtResolver { _, 
  * the attempt started — also when the failure lands AFTER the change (a bump while the load was in flight)
  * ([ArtAttempts], [ArtRetry]).
  *
+ * First frame (M1 fix round 1b, "the placeholder flashes before the real art"): every request carries a
+ * deterministic memory-cache key — (provider, path, sizePx) — and [ArtCacheKeys] remembers which sizes of a cover
+ * have loaded. A tile whose own size is not in memory yet (the hero after a 56dp row, the mini bar after a list)
+ * asks Coil to show the NEAREST loaded size as its placeholder, and whatever is in memory — its own size or that
+ * neighbour — is also drawn directly under the request, so the cover is on screen from the very first frame and
+ * the big one fades in over it. Only a cover never loaded at any size shows [PlaceholderArt].
+ *
  * @param contentDescription null where the title next to the art already says what it is (rows, cards).
  */
 @Composable
@@ -81,24 +91,47 @@ fun Artwork(
     SideEffect { load.composed(resolver, model) }
     Box(modifier = modifier.clip(shape)) {
         PlaceholderArt(modifier = Modifier.fillMaxSize())
-        if (model != null) {
+        if (model != null && art != null) {
             val context = LocalContext.current
-            val request = remember(model, sizePx, context) {
+            val cacheKey = remember(art, sizePx) { ArtCacheKeys.key(art, sizePx) }
+            // The image shown last by THIS tile, else the nearest size any tile loaded: Coil's placeholder while
+            // this size loads (a changed URL, a bigger bucket), so a cover never drops to the placeholder art.
+            val placeholderKey = load.shownKey ?: ArtCacheKeys.nearestLoaded(art, sizePx)
+            val request = remember(model, sizePx, context, cacheKey, placeholderKey) {
                 ImageRequest.Builder(context)
                     .data(model)
                     .size(sizePx)
-                    .placeholderMemoryCacheKey(load.shownKey)
+                    .memoryCacheKey(cacheKey)
+                    .placeholderMemoryCacheKey(placeholderKey)
                     .crossfade(NavTransitionMillis)
                     .build()
+            }
+            // What memory already holds for this cover — its own size, else the placeholder's — drawn NOW, under
+            // the request: Coil's painter can take a frame even for a memory hit, and that frame is the flash.
+            val warm = remember(request) {
+                val cache = SingletonImageLoader.get(context).memoryCache
+                (cache?.get(cacheKey) ?: placeholderKey?.let { cache?.get(it) })?.image?.asPainter(context)
+            }
+            if (warm != null) {
+                Image(
+                    painter            = warm,
+                    contentDescription = null,
+                    contentScale       = ContentScale.Crop,
+                    modifier           = Modifier.fillMaxSize(),
+                )
             }
             // A new attempt is a new painter, and a new painter loads again (Coil caches no failures).
             key(load.attempt) {
                 AsyncImage(
                     model              = request,
                     contentDescription = contentDescription,
+                    placeholder        = warm,
                     contentScale       = ContentScale.Crop,
                     modifier           = Modifier.fillMaxSize(),
-                    onSuccess          = { success -> load.loaded(success.result.memoryCacheKey) },
+                    onSuccess          = { success ->
+                        load.loaded(success.result.memoryCacheKey)
+                        ArtCacheKeys.loaded(art, sizePx)
+                    },
                     onError            = { load.failed(model) },
                 )
             }
@@ -109,6 +142,35 @@ fun Artwork(
 /** [size] in px for [Artwork]'s `sizePx`: the provider rounds it up to its own bucket. */
 @Composable
 fun artSizePx(size: Dp): Int = with(LocalDensity.current) { size.roundToPx() }
+
+/**
+ * Memory-cache keys for covers and the sizes each cover has loaded at — pure bookkeeping, unit-tested in
+ * ArtCacheKeysTest. The key is (provider, path, sizePx), not the URL, so the same cover at the same size is one
+ * entry whichever connection served it. Main thread only (Compose callbacks).
+ */
+internal object ArtCacheKeys {
+    private val loadedSizes = HashMap<ArtRef, MutableSet<Int>>()
+
+    fun key(art: ArtRef, sizePx: Int): MemoryCache.Key = MemoryCache.Key("art:${art.providerId}:${art.path}@$sizePx")
+
+    fun loaded(art: ArtRef, sizePx: Int) {
+        loadedSizes.getOrPut(art) { HashSet() }.add(sizePx)
+    }
+
+    /**
+     * The key of the loaded size nearest to [sizePx]: the largest one below it (never drawn scaled up more than
+     * needed), else the smallest one above it; null when no size of this cover has loaded.
+     */
+    fun nearestLoaded(art: ArtRef, sizePx: Int): MemoryCache.Key? {
+        val sizes = loadedSizes[art] ?: return null
+        if (sizePx in sizes) return key(art, sizePx)
+        val pick = sizes.filter { it < sizePx }.maxOrNull() ?: sizes.filter { it > sizePx }.minOrNull() ?: return null
+        return key(art, pick)
+    }
+
+    /** Test hook. */
+    internal fun clear() = loadedSizes.clear()
+}
 
 /**
  * When an [Artwork] loads its cover again — pure, unit-tested in ArtworkRetryTest. Coil's default model equality

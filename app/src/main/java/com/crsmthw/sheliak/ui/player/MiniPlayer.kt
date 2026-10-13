@@ -2,7 +2,6 @@ package com.crsmthw.sheliak.ui.player
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Transition
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -178,9 +177,11 @@ fun MiniPlayer(
  * position ticker itself — composed only while the bar is on screen, so the ticker runs only then — and reads it
  * in the indicator's progress lambda, so a tick redraws the ring and recomposes nothing.
  *
- * The wave is bound to playback (CLAUDE.md rule 6): amplitude 1 while playing, flat while paused (the change on
- * the finite spec), and its travel speed drops to 0 once flat. Material's own amplitude curve keeps the ring flat
- * in the first 10 % and the last 5 % of a track.
+ * The wave is bound to playback (CLAUDE.md rule 6) through [rememberPlaybackWave]: wavy while playing, flat on
+ * pause (Material's own amplitude tween), the phase never jumping. The speed stays constant: the circular
+ * indicator stops its own travel when its amplitude tween ends at 0 and resumes from the same phase on play (a
+ * speed of 0 would reset the phase). Material's own amplitude curve keeps the ring flat in the first 10 % and the
+ * last 5 % of a track.
  */
 @Composable
 private fun PlayPauseRing(
@@ -192,21 +193,18 @@ private fun PlayPauseRing(
 ) {
     val positionFlow = remember(player) { player.position() }
     val position by positionFlow.collectAsStateWithLifecycle(initialValue = 0L)
-    val waveAmplitude by animateFloatAsState(
-        targetValue   = if (isPlaying) 1f else 0f,
-        animationSpec = screenTransitionSpec(),
-        label         = "miniWave",
-    )
+    val wave = rememberPlaybackWave(isPlaying)
     Box(contentAlignment = Alignment.Center, modifier = Modifier.size(MiniRingSize)) {
         CircularWavyProgressIndicator(
             progress   = { progressFraction(position, durationMs) },
             modifier   = Modifier.size(MiniRingSize),
             color      = color,
             trackColor = color.copy(alpha = 0.24f),
-            amplitude  = { progress -> waveAmplitude * WavyProgressIndicatorDefaults.indicatorAmplitude(progress) },
+            // The step TARGET — Material animates it itself (PlaybackWave).
+            amplitude  = wave.amplitude,
             wavelength = WavyProgressIndicatorDefaults.CircularWavelength,
-            // Travels while playing and while the wave is still flattening; 0 once flat (no offset animation).
-            waveSpeed  = if (isPlaying || waveAmplitude > 0f) WavyProgressIndicatorDefaults.CircularWavelength else 0.dp,
+            // Constant: Material stops the ring's travel itself once its amplitude reaches 0, keeping the phase.
+            waveSpeed  = WavyProgressIndicatorDefaults.CircularWavelength,
         )
         IconButton(onClick = onPlayPause, modifier = Modifier.size(MiniButtonSize)) {
             Icon(

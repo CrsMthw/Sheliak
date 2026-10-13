@@ -21,10 +21,12 @@ import com.crsmthw.sheliak.util.screenTransitionSpec
  * transition, so it slides in as the mini bar slides out — the art flying between them because the two
  * visibility scopes are children of one transition — and its own predictive back seeks it back out to the bar.
  *
+ * The card's `"album-art"` registration is never gated: it is enabled for the card's whole composed life, so at
+ * rest it is the settled participant the flight back to the bar starts from (fix round 1b — the reason is in
+ * `PlayerSurfaceHost`'s gating block).
+ *
  * @param slideDistancePx how far below its own height the card travels to leave the screen (its bottom margin
  *   plus the navigation bar), so it slides fully out past the window edge.
- * @param artMayMatch whether the card art's permanent `"album-art"` registration may match right now (the host's
- *   `SharedContentConfig` gate: a full player or the mini bar must be part of the picture).
  */
 @Composable
 fun PlayerPopOutPanel(
@@ -37,7 +39,6 @@ fun PlayerPopOutPanel(
     onFullScreen   : () -> Unit,
     onOpenQueue    : () -> Unit,
     modifier       : Modifier = Modifier,
-    artMayMatch    : Boolean = true,
 ) {
     panelTransition.AnimatedVisibility(
         visible  = { it },
@@ -61,7 +62,6 @@ fun PlayerPopOutPanel(
                 state           = state,
                 tints           = tints,
                 visibilityScope = this@AnimatedVisibility,
-                artMayMatch     = artMayMatch,
                 onClose         = onClose,
                 onFullScreen    = onFullScreen,
                 onOpenQueue     = onOpenQueue,

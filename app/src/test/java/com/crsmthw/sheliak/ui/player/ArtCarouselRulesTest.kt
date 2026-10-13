@@ -140,14 +140,6 @@ class ArtCarouselRulesTest {
     }
 
     @Test
-    fun `the thumb is centred on the progress point and stays inside the track`() {
-        assertEquals(198, seekThumbOffset(fraction = 0.5f, widthPx = 400, thumbWidthPx = 4))
-        assertEquals(0, seekThumbOffset(fraction = 0f, widthPx = 400, thumbWidthPx = 4))
-        assertEquals(396, seekThumbOffset(fraction = 1f, widthPx = 400, thumbWidthPx = 4))
-        assertEquals(0, seekThumbOffset(fraction = 0.5f, widthPx = 0, thumbWidthPx = 4))
-    }
-
-    @Test
     fun `the haptic notch ticks every five percent`() {
         assertEquals(0, seekNotch(0.04f, 0.05f))
         assertEquals(1, seekNotch(0.05f, 0.05f))
