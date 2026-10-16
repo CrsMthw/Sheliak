@@ -106,7 +106,7 @@ class PlexSetup(
     /** The account token stored by an earlier [complete], if any (adding another server needs no new PIN). */
     suspend fun storedAccountToken(): String? = withContext(Dispatchers.IO) { credentials.token(PlexKeys.ACCOUNT_TOKEN) }
 
-    /** True while a plex.tv account token is stored (Sources shows "Forget Plex account" then). */
+    /** True while a plex.tv account token is stored (Sources shows "Sign out from Plex" then). */
     suspend fun hasAccount(): Boolean = storedAccountToken() != null
 
     /**

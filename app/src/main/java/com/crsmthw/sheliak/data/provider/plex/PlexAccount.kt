@@ -6,7 +6,7 @@ package com.crsmthw.sheliak.data.provider.plex
  *
  * - Removing a server deletes ONLY that server's namespace (`plex:<machineId>:`), even when it was the last Plex
  *   server: the plex.tv account token is KEPT, so adding a server again skips the sign-in.
- * - "Forget Plex account" deletes ONLY the account's namespace ([PlexKeys.ACCOUNT_PREFIX]): the servers already
+ * - "Sign out from Plex" (Sources; the data layer's "forget account") deletes ONLY the account's namespace ([PlexKeys.ACCOUNT_PREFIX]): the servers already
  *   added keep their own access tokens and keep playing; the next server added asks for a sign-in.
  * - Neither ever touches the install's client identifier ([PlexKeys.CLIENT_ID]).
  */
@@ -24,7 +24,7 @@ internal object PlexCredentialRules {
         return if (aliases.any { it.startsWith(prefix) }) emptyList() else listOf(prefix)
     }
 
-    /** The prefixes "Forget Plex account" deletes: the account's namespace only. */
+    /** The prefixes "Sign out from Plex" (forgetting the account) deletes: the account's namespace only. */
     fun onForgetAccount(): List<String> = listOf(PlexKeys.ACCOUNT_PREFIX)
 
     /** The keys of [stored] that removing the [prefixes] deletes (what `removeAll` does, as a pure rule). */

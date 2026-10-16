@@ -1,5 +1,6 @@
 package com.crsmthw.sheliak.ui.screens.search
 
+import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -95,24 +96,37 @@ import com.crsmthw.sheliak.util.screenTransitionSpec
 import kotlinx.coroutines.launch
 
 /*
- * Search — the library's centre tab (`LibraryTab.SEARCH`), not a destination of its own. `LibraryShell` composes
- * its three parts:
+ * Search — one of the library's five tabs (`LibraryTab.SEARCH`), not a destination of its own. `LibraryShell`
+ * composes its three parts:
  *
  *   SearchField           in the ONE RootTopBar's `belowBar` slot, shown on the Search tab only
  *   SearchPage            the tab's content in the library's fade-through: the result-kind tabs and the pages
  *   rememberSearchPageState  everything that must outlive a tab change, hoisted above the fade
  *
- * The bar's title is "Search" and its subtitle a count (`searchSubtitleOf`). Selecting the tab shows the page and
- * leaves the field alone; re-selecting it focuses the field and raises the keyboard ([SearchPageState.focusField]).
+ * The bar's title is "Search"; its subtitle is empty while the field is blank and the count of the result page
+ * shown once results are in ([searchSubtitle]). Selecting the tab shows the page and leaves the field alone;
+ * re-selecting it focuses the field and raises the keyboard ([SearchPageState.focusField]).
  */
 
-/** The kinds of result, one page each, in tab order. */
-private enum class ResultKind(@param:StringRes val labelRes: Int) {
-    TRACKS(R.string.nav_tracks),
-    ALBUMS(R.string.nav_albums),
-    ARTISTS(R.string.nav_artists),
-    PLAYLISTS(R.string.nav_playlists),
-}
+/** A result tab's label: the library's own tab names. */
+@get:StringRes
+private val SearchResultKind.labelRes: Int
+    get() = when (this) {
+        SearchResultKind.TRACKS    -> R.string.nav_tracks
+        SearchResultKind.ALBUMS    -> R.string.nav_albums
+        SearchResultKind.ARTISTS   -> R.string.nav_artists
+        SearchResultKind.PLAYLISTS -> R.string.nav_playlists
+    }
+
+/** A result page's count in words: the library tabs' own counts ("12 tracks", "3 albums", …). */
+@get:PluralsRes
+private val SearchResultKind.countRes: Int
+    get() = when (this) {
+        SearchResultKind.TRACKS    -> R.plurals.library_track_count
+        SearchResultKind.ALBUMS    -> R.plurals.library_album_count
+        SearchResultKind.ARTISTS   -> R.plurals.library_artist_count
+        SearchResultKind.PLAYLISTS -> R.plurals.library_playlist_count
+    }
 
 /** The field's side margins — the bar's own title inset, so the field lines up with "Search" above it. */
 private val SearchFieldSideMargin = 16.dp
@@ -162,8 +176,8 @@ class SearchPageState internal constructor(
 @Composable
 fun rememberSearchPageState(): SearchPageState {
     val query = rememberTextFieldState()
-    val pager = rememberPagerState { ResultKind.entries.size }
-    val lists = ResultKind.entries.map { rememberLazyListState() }
+    val pager = rememberPagerState { SearchResultKind.entries.size }
+    val lists = SearchResultKind.entries.map { rememberLazyListState() }
     val lastReset = rememberSaveable { mutableStateOf<String?>(null) }
     return remember(query, pager, lastReset) { SearchPageState(query, pager, lists, lastReset) }
 }
@@ -180,19 +194,34 @@ fun SearchQuerySync(viewModel: SearchViewModel, state: SearchPageState) {
 }
 
 /**
- * The Search tab's bar subtitle ([searchSubtitleOf]): "N results" for the query in the field, or the library's
- * "N tracks" while it is blank. Collects the results only while it is composed — the shell asks for it on the
- * Search tab only.
+ * The Search tab's bar subtitle ([searchSubtitleOf]): NOTHING while the field is blank or its first results are
+ * not in yet; once they are, the count of the result page shown — "12 tracks", "3 albums", "2 artists",
+ * "1 playlist", the library tabs' own plurals — read from the pager's current page (the tab the result row
+ * highlights), so it changes as the result tabs are swiped or tapped.
+ *
+ * "Nothing" is an EMPTY string, never null: `RootTopBar` pins the large bar's expanded height on the subtitle's
+ * NULLNESS (and picks the small bar's subtitle overload by it), so a non-null "" keeps the bar exactly as tall as
+ * on the other four tabs, and an empty `Text` still measures one line, so the title stays where it is. The shell
+ * keys the bar's text by tab, so the count appearing, changing and going is written in place, never crossfaded.
+ * Collects the results only while it is composed — the shell asks for it on the Search tab only.
  */
 @Composable
-fun searchSubtitle(viewModel: SearchViewModel, state: SearchPageState, libraryTracks: Int): String {
-    val results by viewModel.results.collectAsStateWithLifecycle()
-    val queryBlank by remember(state) { derivedStateOf { state.query.text.isBlank() } }
-    return when (val subtitle = searchSubtitleOf(queryBlank, results, libraryTracks)) {
-        is SearchSubtitle.Results       ->
-            pluralStringResource(R.plurals.search_result_count, subtitle.count, subtitle.count)
-        is SearchSubtitle.LibraryTracks ->
-            pluralStringResource(R.plurals.library_track_count, subtitle.count, subtitle.count)
+fun searchSubtitle(viewModel: SearchViewModel, state: SearchPageState): String {
+    val results = viewModel.results.collectAsStateWithLifecycle()
+    // Derived, so the bar recomposes only when what the subtitle SAYS changes — not on every keystroke, every
+    // results emission or every pager frame.
+    val subtitle by remember(state, results) {
+        derivedStateOf {
+            searchSubtitleOf(
+                queryBlank = state.query.text.isBlank(),
+                results    = results.value,
+                shownKind  = searchResultKindAt(state.pager.currentPage),
+            )
+        }
+    }
+    return when (val shown = subtitle) {
+        SearchSubtitle.None     -> ""
+        is SearchSubtitle.Count -> pluralStringResource(shown.kind.countRes, shown.count, shown.count)
     }
 }
 
@@ -338,7 +367,7 @@ fun SearchPage(
 }
 
 /**
- * The results: one [LazyColumn] per [ResultKind] in a [HorizontalPager], so the kinds can be swiped as well as
+ * The results: one [LazyColumn] per [SearchResultKind] in a [HorizontalPager], so the kinds can be swiped as well as
  * tapped. The pager's own snap IS the swap (gesture-driven, not a content transition). [onLeave] drops the
  * keyboard before a result opens or plays something.
  *
@@ -372,8 +401,8 @@ private fun SearchResultPages(
             modifier       = Modifier.fillMaxSize().nestedScroll(nestedScrollConnection),
             contentPadding = PaddingValues(top = BarContentGap),
         ) {
-            when (ResultKind.entries[page]) {
-                ResultKind.TRACKS    -> if (results.tracks.isEmpty()) noResultsItem(noResults) else {
+            when (searchResultKindAt(page)) {
+                SearchResultKind.TRACKS    -> if (results.tracks.isEmpty()) noResultsItem(noResults) else {
                     itemsIndexed(
                         items       = results.tracks,
                         key         = { _, track -> trackKeyOf(track) },
@@ -388,7 +417,7 @@ private fun SearchResultPages(
                         )
                     }
                 }
-                ResultKind.ALBUMS    -> if (results.albums.isEmpty()) noResultsItem(noResults) else {
+                SearchResultKind.ALBUMS    -> if (results.albums.isEmpty()) noResultsItem(noResults) else {
                     items(results.albums, key = { it.key.mediaId }, contentType = { "album" }) { album ->
                         AlbumListCard(
                             album             = album,
@@ -397,7 +426,7 @@ private fun SearchResultPages(
                         )
                     }
                 }
-                ResultKind.ARTISTS   -> if (results.artists.isEmpty()) noResultsItem(noResults) else {
+                SearchResultKind.ARTISTS   -> if (results.artists.isEmpty()) noResultsItem(noResults) else {
                     items(results.artists, key = { it.key.mediaId }, contentType = { "artist" }) { artist ->
                         ArtistListCard(
                             artist            = artist,
@@ -406,7 +435,7 @@ private fun SearchResultPages(
                         )
                     }
                 }
-                ResultKind.PLAYLISTS -> if (results.playlists.isEmpty()) noResultsItem(noResults) else {
+                SearchResultKind.PLAYLISTS -> if (results.playlists.isEmpty()) noResultsItem(noResults) else {
                     items(results.playlists, key = { it.id }, contentType = { "playlist" }) { playlist ->
                         PlaylistListCard(
                             playlist          = playlist,
@@ -417,8 +446,9 @@ private fun SearchResultPages(
                     }
                 }
             }
-            // The entry's bottom room (the fade, plus the mini bar's room while it shows), so the last row can
-            // scroll clear of both — the same insets the scrim spans.
+            // The entry's bottom room (the fade's length, or the mini bar's room while it shows, whichever is larger),
+            // so the last row can scroll clear of the mini bar — also when the bar rests on the keyboard. The scrim
+            // keeps no room.
             item(key = RESULTS_BOTTOM_KEY, contentType = RESULTS_BOTTOM_KEY) { BottomFadeSpacer() }
         }
     }
@@ -426,18 +456,31 @@ private fun SearchResultPages(
 
 private const val RESULTS_BOTTOM_KEY = "search-bottom-room"
 
-/** A page with nothing for this query. */
+/**
+ * A page with nothing for this query: 'No results for "…"' as a clearly visible line (Cris, fix round 2: the
+ * small grey body text was too easy to miss) — the theme's `titleLarge` (22sp SemiBold, the library empty state's
+ * title style) in `onSurface`, centred, with [NoResultsVerticalPadding] above and below. A list item, so the bar
+ * still collapses over it.
+ */
 private fun LazyListScope.noResultsItem(text: String) {
     item(key = "no-results", contentType = "no-results") {
         Text(
             text      = text,
-            style     = MaterialTheme.typography.bodyMedium,
-            color     = MaterialTheme.colorScheme.onSurfaceVariant,
+            style     = MaterialTheme.typography.titleLarge,
+            color     = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
-            modifier  = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 24.dp),
+            modifier  = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = NoResultsSideMargin, vertical = NoResultsVerticalPadding),
         )
     }
 }
+
+/** The no-results line's side margins. */
+private val NoResultsSideMargin = 24.dp
+
+/** The room above and below the no-results line, so it reads as the page's message, not a stray row. */
+private val NoResultsVerticalPadding = 48.dp
 
 /**
  * The result-kind tabs — Lyra's: a Material 3 [PrimaryTabRow] pinned above the pages in the pane colour, without
@@ -464,7 +507,7 @@ private fun SearchTabRow(pagerState: PagerState, paneColor: Color, modifier: Mod
         },
         divider          = {},
     ) {
-        ResultKind.entries.forEachIndexed { index, page ->
+        SearchResultKind.entries.forEachIndexed { index, page ->
             Tab(
                 selected               = index == selectedIndex,
                 onClick                = {

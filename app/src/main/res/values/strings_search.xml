@@ -1,14 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Search, the library's centre tab (ui/screens/search). The tab's label is nav_search; the field's
-         placeholder and clear button stay in strings.xml; the result tabs reuse the library's tab names. -->
+    <!-- Search, one of the library's five tabs (ui/screens/search). The tab's label is nav_search; the field's
+         placeholder and clear button stay in strings.xml; the result tabs reuse the library's tab names, and the
+         bar subtitle reuses the library's counts (library_*_count) for the result tab shown - nothing while the
+         field is blank. -->
 
-    <!-- The Search tab's bar subtitle while the field holds a query: every track, album, artist and playlist
-         found. %1$d is the count. (While the field is blank the subtitle is the library's track count.) -->
-    <plurals name="search_result_count">
-        <item quantity="one">%1$d result</item>
-        <item quantity="other">%1$d results</item>
-    </plurals>
     <!-- A result tab with nothing for the query. %1$s is the text typed. -->
     <string name="search_no_results">No results for “%1$s”</string>
 </resources>

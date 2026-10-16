@@ -1,9 +1,9 @@
 package com.crsmthw.sheliak.ui.navigation
 
 /*
- * Which navigation-suite component the library shows, decided from the window width. Pure Kotlin so the
- * decision is unit-tested (SuiteLayoutTest); the composable side only maps the answer onto Material's
- * NavigationSuiteType.
+ * Which navigation-suite component the library shows, decided from the window width, and the order of its five
+ * items in each. Pure Kotlin so the decisions are unit-tested (SuiteLayoutTest); the composable side only maps
+ * the answers onto Material's NavigationSuiteType and its items.
  */
 
 /** The M3 window width classes the shell distinguishes. */
@@ -29,13 +29,31 @@ enum class SuiteLayout { Bar, CollapsedRail, ExpandedRail }
  * The suite for [width]. The suite only exists inside the Library entry, so there is no hidden case: purely
  * width-driven — bar on compact, collapsed wide rail on medium, expanded wide rail on expanded — deliberately
  * NOT Material's default `navigationSuiteType()`, which never picks the expanded rail and swaps the rail for a
- * short bar whenever the window is short (folded landscape), where the four items still fit a rail comfortably.
+ * short bar whenever the window is short (folded landscape), where the five items still fit a rail comfortably.
  */
 fun suiteLayoutFor(width: WindowWidth): SuiteLayout = when (width) {
     WindowWidth.Compact  -> SuiteLayout.Bar
     WindowWidth.Medium   -> SuiteLayout.CollapsedRail
     WindowWidth.Expanded -> SuiteLayout.ExpandedRail
 }
+
+/**
+ * The suite's five items for [layout], in the order they are drawn (Cris, fix round 2): on the bar, [LibraryTab]'s
+ * own order — Tracks, Albums, Search, Artists, Playlists — with Search in the CENTRE, under the thumb; on both
+ * rails the same five with Search ([SuiteActionTab]) moved to the END — Tracks, Albums, Artists, Playlists,
+ * Search — so it is the bottom item of the rail's group. Every tab exactly once in each, the other four in the
+ * same relative order. Only the drawing order changes: nothing animates by a tab's position (the tab content
+ * swaps with fade through).
+ */
+fun suiteItemOrder(layout: SuiteLayout): List<LibraryTab> = when (layout) {
+    SuiteLayout.Bar           -> BarItemOrder
+    SuiteLayout.CollapsedRail,
+    SuiteLayout.ExpandedRail  -> RailItemOrder
+}
+
+private val BarItemOrder: List<LibraryTab> = LibraryTab.entries
+
+private val RailItemOrder: List<LibraryTab> = LibraryTab.entries.filter { it != SuiteActionTab } + SuiteActionTab
 
 /**
  * Whether the library's list-detail tabs (Albums, Artists, Playlists) show the list and the selected item side by

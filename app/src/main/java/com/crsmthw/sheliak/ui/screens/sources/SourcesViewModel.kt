@@ -21,14 +21,14 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** Which of the screen's actions a [SourcesFailure] belongs to (its dialog title). */
-enum class SourcesAction { REMOVE, FORGET_ACCOUNT }
+enum class SourcesAction { REMOVE, SIGN_OUT }
 
 /** A failed action and the provider's failure key (the screen words it). */
 data class SourcesFailure(val action: SourcesAction, val error: ProviderError)
 
 /**
  * Settings → Sources: the configured sources with their track counts, last sync and live sync state, the two
- * per-source actions, and the Plex account ([plexSignedIn], "Forget Plex account"). [sources] is null until the
+ * per-source actions, and the Plex account ([plexSignedIn], "Sign out from Plex"). [sources] is null until the
  * first read lands. A failed action is reported through [error] until [dismissError].
  */
 class SourcesViewModel(
@@ -39,12 +39,12 @@ class SourcesViewModel(
     val sources: StateFlow<List<Source>?> =
         repository.sources.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), null)
 
-    /** Moves after "Forget Plex account", which changes no source but does change [plexSignedIn]. */
+    /** Moves after "Sign out from Plex", which changes no source but does change [plexSignedIn]. */
     private val accountChanges = MutableStateFlow(0)
 
     /**
      * True while a plex.tv account token is stored. Read again whenever the set of sources changes (a server added
-     * through the setup stores the token; this entry stays alive under the setup) and after a forget — not on
+     * through the setup stores the token; this entry stays alive under the setup) and after a sign-out — not on
      * every sync progress tick, which re-emits the same sources.
      */
     val plexSignedIn: StateFlow<Boolean> =
@@ -70,11 +70,14 @@ class SourcesViewModel(
         }
     }
 
-    /** Deletes the stored Plex account token (after the screen's confirmation); the added servers keep playing. */
-    fun forgetPlexAccount() {
+    /**
+     * "Sign out from Plex" (after the screen's confirmation): deletes the stored Plex account token — the data
+     * layer's [PlexSetup.forgetAccount] — and nothing else; the added servers keep their own tokens and keep playing.
+     */
+    fun signOutPlex() {
         viewModelScope.launch {
             plexAccount.forgetAccount()
-                .onFailure { _error.value = SourcesFailure(SourcesAction.FORGET_ACCOUNT, ProviderError.of(it)) }
+                .onFailure { _error.value = SourcesFailure(SourcesAction.SIGN_OUT, ProviderError.of(it)) }
             accountChanges.update { it + 1 }
         }
     }

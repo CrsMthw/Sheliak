@@ -172,20 +172,12 @@ internal fun SectionLabel(text: String) {
 }
 
 /**
- * The large item's preferred width (the M3 multi-browse carousel sample's 186dp): the carousel fits as many large
- * items as the width allows and adds the medium / small ones itself, so a wide window shows more, not bigger.
- */
-private val MostPlayedItemWidth = 186.dp
-
-/** The carousel's height — a near-square large item with room for the two-line label at a large font. */
-private val MostPlayedHeight = 200.dp
-
-/**
  * "Most played": its label over Material 3 Expressive's [HorizontalMultiBrowseCarousel] — large, medium and small
  * items that grow and shrink as they scroll, masked by the carousel itself, with the multi-browse fling (several
- * items per fling, settling on an item). Each item is the track's art with the M3 item label (title and artist on
- * a bottom gradient) fading as the item shrinks ([CarouselTrackItem]). A tap plays from that item with the carousel
- * as the queue; a long-press opens the track's sheet.
+ * items per fling, settling on an item); the library carousels' shared width and height
+ * ([CarouselPreferredItemWidth], [CarouselHeight]). Each item is the track's art with the M3 item label (title and
+ * artist on a bottom gradient) fading as the item shrinks ([CarouselArtItem], the artist page's Albums row's item
+ * too). A tap plays from that item with the carousel as the queue; a long-press opens the track's sheet.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -196,26 +188,29 @@ private fun MostPlayedCarousel(
     menuActions: TrackMenuActions,
 ) {
     val artistFallback = stringResource(R.string.library_unknown_artist)
+    val trackActionsLabel = stringResource(R.string.track_actions)
     Column(modifier = Modifier.fillMaxWidth()) {
         SectionLabel(label)
         val state = rememberCarouselState { tracks.size }
         HorizontalMultiBrowseCarousel(
             state              = state,
-            preferredItemWidth = MostPlayedItemWidth,
+            preferredItemWidth = CarouselPreferredItemWidth,
             itemSpacing        = 8.dp,
             flingBehavior      = CarouselDefaults.multiBrowseFlingBehavior(state = state),
             contentPadding     = PaddingValues(horizontal = 16.dp),
-            modifier           = Modifier.fillMaxWidth().height(MostPlayedHeight),
+            modifier           = Modifier.fillMaxWidth().height(CarouselHeight),
         ) { index ->
             // The list can shrink under a pager that has not re-read its count yet.
             val track = tracks.getOrNull(index)
             if (track != null) {
                 var sheetOpen by remember { mutableStateOf(false) }
-                CarouselTrackItem(
-                    track          = track,
-                    artistFallback = artistFallback,
-                    onClick        = { player.playFrom(tracks, index) },
-                    onLongClick    = { sheetOpen = true },
+                CarouselArtItem(
+                    art              = track.art,
+                    title            = track.title,
+                    subtitle         = track.artistName.ifBlank { artistFallback },
+                    onClick          = { player.playFrom(tracks, index) },
+                    onLongClick      = { sheetOpen = true },
+                    onLongClickLabel = trackActionsLabel,
                 )
                 TrackActionsMenu(
                     track     = track,

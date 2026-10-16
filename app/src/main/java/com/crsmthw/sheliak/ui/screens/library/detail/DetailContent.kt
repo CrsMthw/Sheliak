@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -17,7 +18,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.carousel.HorizontalUncontainedCarousel
+import androidx.compose.material3.carousel.CarouselDefaults
+import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -56,8 +58,9 @@ import com.crsmthw.sheliak.ui.components.TrackRowWithMenu
 import com.crsmthw.sheliak.ui.components.artSizePx
 import com.crsmthw.sheliak.ui.components.rememberHeroTitleHandoff
 import com.crsmthw.sheliak.ui.screens.library.AlbumRow
-import com.crsmthw.sheliak.ui.screens.library.ArtistAlbumItem
-import com.crsmthw.sheliak.ui.screens.library.ArtistAlbumItemWidth
+import com.crsmthw.sheliak.ui.screens.library.CarouselArtItem
+import com.crsmthw.sheliak.ui.screens.library.CarouselHeight
+import com.crsmthw.sheliak.ui.screens.library.CarouselPreferredItemWidth
 import com.crsmthw.sheliak.ui.screens.library.SectionLabel
 import com.crsmthw.sheliak.ui.screens.library.albumRowKey
 import com.crsmthw.sheliak.ui.screens.library.libraryArtKey
@@ -387,24 +390,40 @@ internal fun ArtistDetailContent(
 }
 
 /**
- * An artist's albums as Material 3 Expressive's uncontained carousel: every cover full size, the row cut off at
- * the edge, newest first. Every album here PUSHES its detail, so its art flies into that hero at any width.
+ * An artist's albums, newest first, as the SAME Material 3 Expressive carousel as the Tracks tab's Most played
+ * (M1 fix round 2, item 10): [HorizontalMultiBrowseCarousel] with large / medium / small items, the multi-browse
+ * fling (settling on an item), the library carousels' width and FIXED height, and [CarouselArtItem] — the cover
+ * with the album's title over its year on the item's own gradient label, which follows the mask's start edge and
+ * fades as the item shrinks.
+ *
+ * It replaced an uncontained carousel whose title and year sat UNDER each cover, laid out at the item's start:
+ * Material masks every carousel item around its centre and the uncontained keylines shrink the cut-off item at
+ * the edge, so those labels lost their first letters wherever the mask was narrower than the item; and its free,
+ * non-snapping fling stopped wherever its speed ran out — against the end of the row, speed left over, whenever a
+ * fling carried that far. The multi-browse fling's target is always an item's resting place.
+ *
+ * Every album here PUSHES its detail, so its cover keeps the `"lib-art-…"` shared bounds and flies into that hero
+ * at any width ([CarouselArtItem] explains where the bounds sit and why).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ArtistAlbumsRow(albums: List<Album>, onOpenAlbum: (TrackKey) -> Unit) {
-    HorizontalUncontainedCarousel(
-        state          = rememberCarouselState { albums.size },
-        itemWidth      = ArtistAlbumItemWidth,
-        itemSpacing    = 8.dp,
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        modifier       = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+    val state = rememberCarouselState { albums.size }
+    HorizontalMultiBrowseCarousel(
+        state              = state,
+        preferredItemWidth = CarouselPreferredItemWidth,
+        itemSpacing        = 8.dp,
+        flingBehavior      = CarouselDefaults.multiBrowseFlingBehavior(state = state),
+        contentPadding     = PaddingValues(horizontal = 16.dp),
+        modifier           = Modifier.fillMaxWidth().height(CarouselHeight),
     ) { index ->
         // The list can shrink under a pager that has not re-read its count yet.
         val album = albums.getOrNull(index)
         if (album != null) {
-            ArtistAlbumItem(
-                album             = album,
+            CarouselArtItem(
+                art               = album.art,
+                title             = album.title,
+                subtitle          = album.year?.toString(),
                 onClick           = { onOpenAlbum(album.key) },
                 artSharedModifier = Modifier.libraryArtSharedBounds(libraryArtKey(album.key)),
             )

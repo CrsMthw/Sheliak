@@ -2,10 +2,10 @@ package com.crsmthw.sheliak.ui.navigation
 
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.SeekableTransitionState
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.createChildTransition
 import androidx.compose.animation.core.rememberTransition
 import androidx.compose.animation.core.tween
@@ -70,6 +70,7 @@ import com.crsmthw.sheliak.ui.player.MiniPlayer
 import com.crsmthw.sheliak.ui.player.PANEL_SCRIM_ALPHA
 import com.crsmthw.sheliak.ui.player.POP_OUT_PANEL_MAX_HEIGHT_FRACTION
 import com.crsmthw.sheliak.ui.player.POP_OUT_PANEL_WIDTH_FRACTION
+import com.crsmthw.sheliak.ui.player.PanelScrimSegment
 import com.crsmthw.sheliak.ui.player.PlacementMotion
 import com.crsmthw.sheliak.ui.player.PlayerArtGate
 import com.crsmthw.sheliak.ui.player.PlayerPopOutPanel
@@ -178,6 +179,10 @@ private val PanelBottomMargin = 16.dp
  *   so "the screen below" is the last surface-allowed screen;
  * - everything else (a tap, a push, a committed or cancelled gesture) animates to the wanted surface, or winds
  *   an abandoned seek back — Navigation's own pattern, on the finite specs — or SNAPS (a fold swap, below).
+ *
+ * The card's scrim is not an animation of a child: it reads this state itself ([PanelScrim]), because a snap to a
+ * state that is neither the current nor the target one leaves a child transition's animations stale (fix round 2,
+ * item 41).
  *
  * ### Lyra's §5.1 workarounds (fix round 1)
  * - `"album-art#<generation>"` ([LocalPlayerArtKey]): the generation advances at the first quiet moment after an
@@ -559,13 +564,6 @@ fun PlayerSurfaceHost(
     if (surfaceAllowed) heldInset.value = liveInset
     val surfaceInset = heldInset.value
 
-    // The scrim's alpha rides the panel's own transition, so it seeks with the panel's gestures and can never
-    // drift from the card's slide.
-    val scrimAlpha by panelTransition.animateFloat(
-        transitionSpec = { screenTransitionSpec() },
-        label          = "panelScrim",
-    ) { shown -> if (shown) PANEL_SCRIM_ALPHA else 0f }
-
     // ONE lambda for the host's life, reading the latest values when called: a new instance per recomposition
     // would re-run the whole navigation host on every frame the host recomposes (a gesture, the bar's glide).
     val canShowPanelNow   by rememberUpdatedState(canShowPanel)
@@ -604,28 +602,14 @@ fun PlayerSurfaceHost(
                 content(onRequestPlayer)
             }
 
-            // The scrim behind the panel. Tap-to-dismiss only while the panel is actually open — a fading scrim
-            // with a pointer modifier would swallow taps meant for the screen beneath it. Drawn over a pushed full
-            // player only while the panel's own transition targets it (a back gesture seeking the panel in).
-            val dismissLabel = stringResource(R.string.player_close_panel)
-            if ((surfaceAllowed || panelTransition.targetState) && scrimAlpha > 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = scrimAlpha))
-                        .then(
-                            if (panelVisible) {
-                                Modifier.clickable(
-                                    interactionSource = null,
-                                    indication        = null,
-                                    onClickLabel      = dismissLabel,
-                                ) { haptics.confirm(); closePanel() }
-                            } else {
-                                Modifier
-                            },
-                        ),
-                )
-            }
+            // The scrim behind the card, read from the seekable state itself (fix round 2, item 41 — see PanelScrim).
+            PanelScrim(
+                surfaceState   = surfaceState,
+                cardComposed   = canShowPanel,
+                surfaceAllowed = surfaceAllowed,
+                dismissible    = panelVisible,
+                onDismiss      = { haptics.confirm(); closePanel() },
+            )
 
             // The mini bar. A full-width strip with no pointer input of its own, so taps beside a 0.58 bar fall
             // through to the screen.
@@ -698,5 +682,64 @@ fun PlayerSurfaceHost(
                 }
             }
         }
+    }
+}
+
+/**
+ * The scrim behind the pop-out card: `PANEL_SCRIM_ALPHA` × `panelScrimShare` of the surface's ONE seekable state —
+ * its current and target states and its fraction on the card's own easing (`screenTransitionSpec()`'s
+ * FastOutSlowIn, the curve every child plays at `fraction × duration`) — so it follows every seek, animation and
+ * unwind of the card, and is 0 by construction after any snap away from it.
+ *
+ * Fix round 2, item 41 (Cris: after a fold swapped the card for the full player, back left "the dark scrim all over
+ * the screen behind the mini bar"): the scrim used to be `panelTransition.animateFloat`. compose-animation
+ * 1.13.0-beta01 leaves a CHILD transition's animation at its old value when the seekable state snaps to a third
+ * state — the fold swap's `snapTo(None)` from the card — so it stayed at full alpha over the Library until a real
+ * card animation ran (docs/MOTION.md W-2).
+ *
+ * Its own composable, so the fraction it reads on every frame of every surface transition recomposes this scope
+ * only, not the host. Always composed (it emits nothing while hidden), so [PanelScrimSegment] sees every state.
+ *
+ * @param cardComposed the card can exist here (the host composes it only then): no card, no scrim — not even for
+ *   the frame before a fold swap snaps the surface away from it.
+ * @param surfaceAllowed the screen on top shows the floating surface. Over one without it (a pushed full player)
+ *   the scrim draws only while the state targets the card: a back gesture seeking it in.
+ * @param dismissible the card is actually open: only then does a tap on the scrim close it — a fading scrim with a
+ *   pointer modifier would swallow taps meant for the screen beneath it.
+ */
+@Composable
+private fun PanelScrim(
+    surfaceState  : SeekableTransitionState<PlayerSurface>,
+    cardComposed  : Boolean,
+    surfaceAllowed: Boolean,
+    dismissible   : Boolean,
+    onDismiss     : () -> Unit,
+) {
+    val segment      = remember { PanelScrimSegment() }
+    val target       = surfaceState.targetState
+    val share        = segment.share(
+        current  = surfaceState.currentState,
+        target   = target,
+        progress = FastOutSlowInEasing.transform(surfaceState.fraction),
+    )
+    val dismissLabel = stringResource(R.string.player_close_panel)
+    if (cardComposed && (surfaceAllowed || target == PlayerSurface.Panel) && share > 0f) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = PANEL_SCRIM_ALPHA * share))
+                .then(
+                    if (dismissible) {
+                        Modifier.clickable(
+                            interactionSource = null,
+                            indication        = null,
+                            onClickLabel      = dismissLabel,
+                            onClick           = onDismiss,
+                        )
+                    } else {
+                        Modifier
+                    },
+                ),
+        )
     }
 }

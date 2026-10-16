@@ -6,7 +6,7 @@ import kotlin.test.assertTrue
 
 /**
  * The account-token retention rule (M1 fix round 1, D2 — Cris: "add the server again (PIN skipped)"): removing a
- * Plex server, even the last one, deletes only that server's secrets; "Forget Plex account" deletes only the
+ * Plex server, even the last one, deletes only that server's secrets; "Sign out from Plex" deletes only the
  * account's; neither touches the install's client identifier. Run over the real key names.
  */
 class PlexAccountTest {

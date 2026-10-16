@@ -6,9 +6,9 @@ import com.crsmthw.sheliak.ui.navigation.WindowWidth
 
 /*
  * The pure rules of the floating player surface (PlayerSurfaceHost): which surface shows, where the mini bar
- * sits, whether the pop-out panel may exist at all, what crossing the pop-out line does to an open player, and
- * which `"album-art"` registrations may match. No Compose runtime, no android.* — unit-tested in
- * PlayerSurfaceTest and PlacementSeedingTest.
+ * sits, whether the pop-out panel may exist at all, what crossing the pop-out line does to an open player,
+ * which `"album-art"` registrations may match, and how much of the card's scrim shows. No Compose runtime, no
+ * android.* — unit-tested in PlayerSurfaceTest and PlacementSeedingTest.
  */
 
 /**
@@ -218,4 +218,65 @@ fun floatingArtMayMatch(fullPlayerPresent: Boolean, otherSurfaceInTransition: Bo
 fun unwindMillis(fraction: Float, totalDurationNanos: Long, floorMillis: Int): Int {
     val totalMillis = (totalDurationNanos / 1_000_000L).coerceAtLeast(floorMillis.toLong())
     return (fraction.coerceIn(0f, 1f) * totalMillis).toInt()
+}
+
+// ── The scrim behind the pop-out card ──────────────────────────────────────────────────────────────────────
+
+/**
+ * How much of the pop-out card's scrim shows, 0..1 (the host multiplies it by `PANEL_SCRIM_ALPHA`), read from the
+ * surface's ONE seekable state itself — never from an animation of a child transition, which a fold's `snapTo`
+ * leaves stale (fix round 2, item 41; docs/MOTION.md W-2).
+ *
+ * At rest ([current] == [target]) it is 1 on the panel and 0 anywhere else, whatever came before — so a snap to
+ * None or Bar clears it by construction. Moving, it runs from [startShare] to the target's rest share over
+ * [progress]: into the panel, a seek or an animation fades it in; out of it, out.
+ *
+ * @param current the seekable state's `currentState`.
+ * @param target its `targetState`.
+ * @param progress its `fraction` on the card's own easing (the host applies `screenTransitionSpec()`'s curve, so
+ *   the scrim cannot drift from the card's slide); clamped to 0..1.
+ * @param startShare the share on screen when this current → target segment began ([PanelScrimSegment]): a
+ *   retarget mid-flight restarts the state at fraction 0 with `currentState` = the OLD target, so the state alone
+ *   would jump.
+ */
+fun panelScrimShare(current: PlayerSurface, target: PlayerSurface, progress: Float, startShare: Float): Float {
+    val end = if (target == PlayerSurface.Panel) 1f else 0f
+    if (current == target) return end
+    return startShare + (end - startShare) * progress.coerceIn(0f, 1f)
+}
+
+/**
+ * The scrim's one piece of memory: the share it showed when the seekable state's current → target pair last
+ * changed, which a new segment starts from ([panelScrimShare]). A retarget — a back swipe on a card still rising
+ * from the full player (opening from None, after its back arrow), the card's full-screen button while it is still
+ * moving — moves `currentState` to the old target and resets the fraction to 0; Compose hides that jump from child
+ * animations, and this is the same continuity for a value read from the state: the new segment starts from what was
+ * on screen. (A close or reopen that returns to the state the surface is leaving is not a retarget: the host winds
+ * the fraction back instead. Nor is a back swipe on a card opening from the BAR: the state's current state is still
+ * the bar, so the host has nothing to seek and the card pauses under the finger until the gesture ends.)
+ *
+ * One step remains, by design: a retarget wound back to the state it left (that back swipe on a card still rising
+ * from the full player, released early) ends at the remembered start, and the snap back to the card then shows the
+ * full share. Compose's children avoid it by letting the interrupted segment run on underneath, in time, which a
+ * value read from the state cannot; it is a single small step (at most the share the opening had not reached yet)
+ * on a rare gesture.
+ *
+ * Not snapshot state: called once per composition of the scrim (the host's holder idiom), whether or not it draws.
+ */
+class PanelScrimSegment {
+    private var current: PlayerSurface? = null
+    private var target: PlayerSurface? = null
+    private var start = 0f
+    private var shown = 0f
+
+    /** The share to show for this state, remembering it as the start of the next segment. */
+    fun share(current: PlayerSurface, target: PlayerSurface, progress: Float): Float {
+        if (current != this.current || target != this.target) {
+            this.current = current
+            this.target  = target
+            start        = shown
+        }
+        shown = panelScrimShare(current, target, progress, start)
+        return shown
+    }
 }

@@ -60,9 +60,10 @@ import com.crsmthw.sheliak.util.press
  * Settings → Sources: every configured source — its name, track count and sync status ("Not synced yet",
  * "Syncing… N of M", "Synced 5 minutes ago", "Sync failed: …") — with Sync now and Remove (behind a
  * confirmation), then "Add Plex server", which opens the Plex setup, and — while a plex.tv account token is
- * stored — the "Plex account" section with "Forget Plex account" (behind a confirmation). The account outlives
- * its servers: removing the last one keeps it, so adding a server again skips the sign-in. The Settings anatomy:
- * [RootTopBar] with a back arrow over a scrolling column, the bar's connection outside the scroller.
+ * stored — the "Plex account" section with "Sign out from Plex" (one row, no subtitle, behind a confirmation; the
+ * data layer calls it forgetting the account). The account outlives its servers: removing the last one keeps it,
+ * so adding a server again skips the sign-in. The Settings anatomy: [RootTopBar] with a back arrow over a
+ * scrolling column, the bar's connection outside the scroller.
  */
 @Composable
 fun SourcesScreen(
@@ -79,7 +80,7 @@ fun SourcesScreen(
     val paneColor = MaterialTheme.colorScheme.background
     // The source awaiting the user's confirmation to remove; saveable, so the dialog survives a rotation.
     var pendingRemoval by rememberSaveable { mutableStateOf<String?>(null) }
-    var pendingForget by rememberSaveable { mutableStateOf(false) }
+    var pendingSignOut by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         modifier            = modifier,
@@ -137,9 +138,8 @@ fun SourcesScreen(
                             SettingsSectionHeader(stringResource(R.string.sources_section_account))
                             SettingsItem(
                                 icon      = Icons.AutoMirrored.Outlined.Logout,
-                                title     = stringResource(R.string.sources_forget_account),
-                                subtitle  = stringResource(R.string.sources_forget_account_desc),
-                                onClick   = { pendingForget = true },
+                                title     = stringResource(R.string.sources_sign_out),
+                                onClick   = { pendingSignOut = true },
                                 tintError = true,
                             )
                         }
@@ -177,24 +177,24 @@ fun SourcesScreen(
         )
     }
 
-    if (pendingForget && plexSignedIn) {
+    if (pendingSignOut && plexSignedIn) {
         AlertDialog(
-            onDismissRequest = { pendingForget = false },
-            title            = { Text(stringResource(R.string.sources_forget_account_title)) },
-            text             = { Text(stringResource(R.string.sources_forget_account_body)) },
+            onDismissRequest = { pendingSignOut = false },
+            title            = { Text(stringResource(R.string.sources_sign_out_title)) },
+            text             = { Text(stringResource(R.string.sources_sign_out_body)) },
             confirmButton    = {
                 TextButton(
                     onClick = {
                         haptics.confirm()
-                        pendingForget = false
-                        viewModel.forgetPlexAccount()
+                        pendingSignOut = false
+                        viewModel.signOutPlex()
                     },
                 ) {
-                    Text(stringResource(R.string.sources_forget_account_confirm), color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.sources_sign_out_confirm), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton    = {
-                TextButton(onClick = { haptics.press(); pendingForget = false }) {
+                TextButton(onClick = { haptics.press(); pendingSignOut = false }) {
                     Text(stringResource(R.string.sources_cancel))
                 }
             },
@@ -208,8 +208,8 @@ fun SourcesScreen(
                 Text(
                     stringResource(
                         when (failure.action) {
-                            SourcesAction.REMOVE         -> R.string.sources_remove_failed
-                            SourcesAction.FORGET_ACCOUNT -> R.string.sources_forget_account_failed
+                            SourcesAction.REMOVE   -> R.string.sources_remove_failed
+                            SourcesAction.SIGN_OUT -> R.string.sources_sign_out_failed
                         },
                     ),
                 )

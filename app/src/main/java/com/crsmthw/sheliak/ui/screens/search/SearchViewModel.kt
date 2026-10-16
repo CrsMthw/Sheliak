@@ -28,7 +28,7 @@ import kotlinx.coroutines.launch
  * playlist titles). The field's text arrives through [setQuery]; [results] follows it — debounced while the user
  * types, at once when the field is cleared — and is null while the field is blank (the page then shows nothing;
  * the field's placeholder says what to do). Results are live: a sync landing while they show updates them. One
- * instance per Library entry: Search is the library's centre tab (`LibraryTab.SEARCH`), not an entry of its own.
+ * instance per Library entry: Search is one of the library's tabs (`LibraryTab.SEARCH`, the bar's centre item), not an entry of its own.
  */
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class SearchViewModel(

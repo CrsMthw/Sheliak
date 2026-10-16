@@ -103,8 +103,8 @@ internal fun LibraryRefreshFrame(
 
 /**
  * The library's alphabet fast scroller ([AlphabetFastScroller]) over a tab's list: the shared component kept above
- * the same player-surface room the list's fade keeps ([LocalBottomFadeExtra]) — the one call the four tabs and the
- * two-pane left lists make.
+ * the same player-surface room the list's trailing spacer keeps ([LocalBottomFadeExtra]) — the one call the four
+ * tabs and the two-pane left lists make.
  */
 @Composable
 internal fun BoxScope.LibraryFastScroller(
@@ -144,10 +144,10 @@ internal fun LibraryTabList(
         contentPadding = PaddingValues(top = BarContentGap),
     ) {
         content()
-        // The bottom room the fade scrim covers, plus the entry's player-surface room (BottomFadeSpacer's default,
-        // the same value the scrim reads), so the last row can scroll clear of both. An inset-aware item rather
-        // than `contentPadding`, because only an inset modifier knows what the navigation suite's bar has already
-        // consumed (CLAUDE.md rule 9).
+        // The larger of the fade scrim's height and the entry's player-surface room (BottomFadeSpacer's default;
+        // the scrim reads none, and the mini bar floats over it), so the last row can scroll clear of the fade and
+        // the mini bar. An inset-aware item rather than `contentPadding`, because only an inset modifier knows what
+        // the navigation suite's bar has already consumed (CLAUDE.md rule 9).
         if (bottomRoom) {
             item(key = BOTTOM_ROOM_KEY, contentType = BOTTOM_ROOM_KEY) { BottomFadeSpacer() }
         }

@@ -3,7 +3,6 @@ package com.crsmthw.sheliak.ui.player
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
@@ -51,13 +50,21 @@ private class CarouselSync(var followedKey: TrackKey?) {
  * - **The player changing track by itself** glides the carousel one item on the finite spec; the same track moving
  *   to another row (shuffle, a removal above it) snaps. Rules in [carouselFollow] / [carouselSettled].
  * - **The edges** are the component's own: there is simply no item beyond the first or the last row, and Material's
- *   keylines shift there (and lay a queue of one or two tracks out start-aligned) — no custom carousel.
+ *   keylines shift there (and lay a queue of two tracks out start-aligned: the playing art, the other's peek) — no
+ *   custom carousel.
+ * - **Short queues** (fix round 2): the carousel keeps ONE width at every queue length, so Material's large item
+ *   must absorb the room of the small slots it drops below three items. [heroCarouselGeometry] hands it the
+ *   preferred width that fills that room exactly (the art's side from three tracks on, side + peek + gap for two,
+ *   the whole carousel for one); with the art's side for every queue, Material's cost rule chose two equal large
+ *   items for a two-track queue whenever the art was under 232dp (the pop-out card's portrait crops) and for a
+ *   one-track queue under 472dp. Every item shows the art as a centred square of its height (of its width, should
+ *   an item ever be narrower), never cropped to the item's rectangle; only Material's mask narrows the peeks.
  *
  * The playing row's art is the `"album-art"` shared element (first in its chain, gated by [artMayMatch]); the
  * registration moves with the playing row, so every new holder is a freshly placed node.
  *
  * @param availableWidth / [availableHeight] the room the art area has; the carousel sizes itself in it
- *   ([heroCarouselGeometry]) so the centre art is square.
+ *   ([heroCarouselGeometry]) so the playing art is square.
  */
 @Composable
 fun AlbumArtCarousel(
@@ -71,7 +78,7 @@ fun AlbumArtCarousel(
     modifier       : Modifier = Modifier,
     cornerRadius   : Dp = 16.dp,
 ) {
-    val geometry = heroCarouselGeometry(availableWidth, availableHeight, ArtCarouselPeek, ArtCarouselSpacing)
+    val geometry = heroCarouselGeometry(availableWidth, availableHeight, queue.size, ArtCarouselPeek, ArtCarouselSpacing)
     val shape    = RoundedCornerShape(cornerRadius)
     val playing  = carouselItemFor(queueIndex, queue.size)
     val albumArtLabel = stringResource(R.string.player_album_art)
@@ -154,9 +161,10 @@ fun AlbumArtCarousel(
         modifier           = modifier
             .width(geometry.width)
             .height(geometry.itemSide),
-        // Material's hero keylines pick the arrangement whose large item lands closest to this; the carousel is
-        // exactly as wide as one such item plus two peeks, so it lands on it exactly.
-        preferredItemWidth = geometry.itemSide,
+        // Material's hero keylines pick the arrangement whose large item lands closest to this (weighted by try
+        // order); it is exactly what ONE large item fills beside the peeks Material keeps for this queue's length,
+        // so that arrangement costs nothing and wins at every size ([heroCarouselGeometry]).
+        preferredItemWidth = geometry.largeItemWidth,
         itemSpacing        = ArtCarouselSpacing,
         minSmallItemWidth  = ArtCarouselPeek,
         maxSmallItemWidth  = ArtCarouselPeek,
@@ -177,8 +185,11 @@ fun AlbumArtCarousel(
                 shape              = shape,
                 // The shared element FIRST in the chain, before the size (Lyra's order), so the carousel's own
                 // placement never disturbs the morph's bounds. Only the playing row registers.
+                // The size: a square of the item's height, or of its width should an item ever be narrower — the
+                // Box hands loose constraints, so the strict aspect-ratio passes always fit. (With fillMaxHeight in
+                // front, a narrow item fell through to a full-height square that overflowed it and was cropped to
+                // the item's portrait rectangle.)
                 modifier           = (if (isCurrent) Modifier.albumArtSharedElement(visibilityScope, artMayMatch) else Modifier)
-                    .fillMaxHeight()
                     .aspectRatio(1f, matchHeightConstraintsFirst = true),
             )
         }

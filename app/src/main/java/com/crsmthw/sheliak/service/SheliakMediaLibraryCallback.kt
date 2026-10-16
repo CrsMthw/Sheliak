@@ -20,11 +20,13 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.crsmthw.sheliak.R
+import com.crsmthw.sheliak.data.db.NormalizedKeys
 import com.crsmthw.sheliak.data.repository.LibraryRepository
 import com.crsmthw.sheliak.domain.RepeatMode
 import com.crsmthw.sheliak.domain.Track
 import com.crsmthw.sheliak.domain.TrackKey
 import com.crsmthw.sheliak.player.toPlayerRepeatMode
+import com.crsmthw.sheliak.util.AlphabetSections
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -37,9 +39,13 @@ import kotlinx.coroutines.withContext
  * The session's library side: the Android Auto browse tree, search, and the one place requested media items are
  * turned into playable ones (a controller sends media ids; Auto sends node ids; a resumption sends nothing).
  *
- * Tree: root → Tracks / Albums / Artists / Playlists / Recently played, all from the index (LibraryRepository).
- * Albums and playlists are playable folders; a track row inside a list carries its list ([BrowseNode.InContext]),
- * so playing it queues the whole list from that track. Lists are capped at [LIST_CAP] rows and paged.
+ * Tree: root → Tracks / Albums / Artists / Playlists / Recently played, all from the index (LibraryRepository);
+ * Auto's root-children hint (four tabs on a phone projection) drops the last, Recently played. Albums and playlists
+ * are playable folders; a track row inside a list carries its list ([BrowseNode.InContext]), so playing it queues
+ * the whole list from that track. Auto does not page and lists only so many rows of one level, so a top-level list
+ * of more than [AutoBrowseGrouping.AUTO_GROUP_MIN] items is LETTER FOLDERS ([BrowseNode.Section], one per alphabet
+ * section, exactly the app's fast-scroller sections), each listing all of its rows; a track row inside one queues
+ * that letter from that track. Only Recently played ([RECENT_CAP]) and search ([SEARCH_LIMIT]) are capped.
  *
  * Work runs on [scope] off the main thread (building thousands of MediaItems must not jank the UI, which shares
  * the main thread with this service); only player calls hop back to main.
@@ -202,7 +208,7 @@ class SheliakMediaLibraryCallback(
         startIndex: Int,
         startPositionMs: Long,
     ): ListenableFuture<MediaItemsWithStartPosition> = scope.future(Dispatchers.Default) {
-        // One row tapped in a browse list: the whole list, from that row.
+        // One row tapped in a browse list: the whole list (a letter folder: that letter), from that row.
         val row = mediaItems.singleOrNull()?.let { BrowseIds.parse(it.mediaId) } as? BrowseNode.InContext
         if (row != null) {
             val list = tracksOf(row.parent).orEmpty()
@@ -273,39 +279,104 @@ class SheliakMediaLibraryCallback(
         }
     }
 
-    /** The tracks a playable folder (or a track list) plays, in its order; null for a node with no tracks. */
+    /**
+     * The tracks a playable folder (or a track list) plays, in its order — every one: what a row of the list queues,
+     * like a row in the app; null for a node with no tracks.
+     */
     private suspend fun tracksOf(node: BrowseNode): List<Track>? = when (node) {
-        BrowseNode.Tracks      -> library.tracks.first().take(LIST_CAP)
+        BrowseNode.Tracks      -> library.tracks.first()
         BrowseNode.Recent      -> library.recentlyPlayed(RECENT_CAP).first()
         is BrowseNode.Album    -> library.albumTracks(node.key).first()
         is BrowseNode.Playlist -> library.playlistTracks(node.id).first()
+        is BrowseNode.Section  -> if (node.list == BrowseNode.Tracks) tracksInSection(node.key) else null
         else                   -> null
     }
 
+    /** The tracks of the Tracks letter folder [key], in the Tracks list's order. */
+    private suspend fun tracksInSection(key: String): List<Track> {
+        val tracks = library.tracks.first()
+        return AutoBrowseGrouping.membersOf(tracks.map(Track::titleSort), key).map(tracks::get)
+    }
+
     private suspend fun childrenOf(node: BrowseNode): List<MediaItem>? = when (node) {
-        BrowseNode.Root      -> rootChildren()
-        BrowseNode.Albums    -> library.albums.first().take(LIST_CAP).map(items::album)
-        BrowseNode.Artists   -> library.artists.first().take(LIST_CAP).map(items::artist)
-        BrowseNode.Playlists -> library.playlists.first().take(LIST_CAP).map(items::playlist)
-        is BrowseNode.Artist -> library.artistAlbums(node.key).first().map(items::album)
+        BrowseNode.Root         -> rootChildren()
+        BrowseNode.Tracks, BrowseNode.Albums, BrowseNode.Artists, BrowseNode.Playlists -> listChildren(node)
+        is BrowseNode.Section   -> sectionChildren(node)
+        is BrowseNode.Artist    -> library.artistAlbums(node.key).first().map(items::album)
         is BrowseNode.InContext -> null
         else -> tracksOf(node)?.map { items.trackRow(it, BrowseNode.InContext(node, it.key)) }
     }
 
-    private fun rootChildren(): List<MediaItem> = listOf(
+    /**
+     * A top-level list's children: its rows when it has at most [AutoBrowseGrouping.AUTO_GROUP_MIN], else one
+     * letter folder per alphabet section, in the order the app's list shows them ([AutoBrowseGrouping.sectionsOf]).
+     */
+    private suspend fun listChildren(list: BrowseNode): List<MediaItem> {
+        val rows = rowsOf(list) ?: return emptyList()
+        if (!AutoBrowseGrouping.isGrouped(rows.size)) return rows.browseItems(list, rows.sortKeys.indices)
+        return AutoBrowseGrouping.sectionsOf(rows.sortKeys).map { sectionFolder(list, it) }
+    }
+
+    /**
+     * A letter folder's children: every row of its section, uncapped, in the list's order. A track row carries the
+     * folder as its parent, so playing it queues that letter from that track ([tracksOf]).
+     */
+    private suspend fun sectionChildren(section: BrowseNode.Section): List<MediaItem> {
+        val rows = rowsOf(section.list) ?: return emptyList()
+        return rows.browseItems(section, AutoBrowseGrouping.membersOf(rows.sortKeys, section.key))
+    }
+
+    /**
+     * A top-level list's rows, from one read, with the sort key of each — the very keys the app's list is ordered
+     * by and its alphabet scroller indexes (LibraryViewModel's `trackIndex` / `albumIndex` / `artistIndex` /
+     * `playlistIndex`): a track's `titleSort`, an album's or an artist's index sort key (the provider's sort title
+     * when it sent one), a playlist's normalised title. So Auto's letter folders and the app's scroller agree. Null
+     * for a node that is not one of the four lists.
+     */
+    private suspend fun rowsOf(list: BrowseNode): ListRows? = when (list) {
+        BrowseNode.Tracks -> {
+            val tracks = library.tracks.first()
+            ListRows(tracks.map(Track::titleSort)) { row, parent ->
+                tracks[row].let { items.trackRow(it, BrowseNode.InContext(parent, it.key)) }
+            }
+        }
+        BrowseNode.Albums -> {
+            val albums = library.albumsSorted.first()
+            ListRows(albums.sortKeys) { row, _ -> items.album(albums.items[row]) }
+        }
+        BrowseNode.Artists -> {
+            val artists = library.artistsSorted.first()
+            ListRows(artists.sortKeys) { row, _ -> items.artist(artists.items[row]) }
+        }
+        BrowseNode.Playlists -> {
+            val playlists = library.playlists.first()
+            ListRows(playlists.map { NormalizedKeys.sortKey(it.title) }) { row, _ -> items.playlist(playlists[row]) }
+        }
+        else -> null
+    }
+
+    /** Whether the Albums tab shows letter folders (one count read): its child style follows ([folderItem]). */
+    private suspend fun albumsGrouped(): Boolean = AutoBrowseGrouping.isGrouped(library.counts.first().albums)
+
+    private suspend fun rootChildren(): List<MediaItem> = listOf(
         folderItem(BrowseNode.Tracks),
-        folderItem(BrowseNode.Albums),
+        folderItem(BrowseNode.Albums, grouped = albumsGrouped()),
         folderItem(BrowseNode.Artists),
         folderItem(BrowseNode.Playlists),
         folderItem(BrowseNode.Recent),
     ).take(rootChildrenLimit)
 
-    private fun folderItem(node: BrowseNode): MediaItem = when (node) {
+    /**
+     * A fixed folder. [grouped] says whether the list shows letter folders; only Albums' child style depends on it:
+     * its albums show as a grid of covers, but its letter folders (art-less) as a list.
+     */
+    private fun folderItem(node: BrowseNode, grouped: Boolean = false): MediaItem = when (node) {
         BrowseNode.Root      -> items.folder(node, context.getString(R.string.app_name), MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
         BrowseNode.Tracks    -> items.folder(node, context.getString(R.string.nav_tracks), MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
         BrowseNode.Albums    -> items.folder(
             node, context.getString(R.string.nav_albums), MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS,
-            childStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM,
+            childStyle = if (grouped) MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM
+                         else MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM,
         )
         BrowseNode.Artists   -> items.folder(node, context.getString(R.string.nav_artists), MediaMetadata.MEDIA_TYPE_FOLDER_ARTISTS)
         BrowseNode.Playlists -> items.folder(node, context.getString(R.string.nav_playlists), MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS)
@@ -313,13 +384,39 @@ class SheliakMediaLibraryCallback(
         else                 -> error("Not a folder: $node")
     }
 
-    /** A browse item for any id: a folder, an album / artist / playlist, a track (bare or in a list). */
+    /**
+     * The letter folder [section] of [list]: a list item titled with the section's label ("#" through the same
+     * string resource the app's scroller bubble uses). The albums inside an Albums letter show as a grid of covers,
+     * like the flat Albums tab.
+     */
+    private fun sectionFolder(list: BrowseNode, section: AutoSection): MediaItem = items.folder(
+        node       = BrowseNode.Section(list, section.key),
+        title      = if (section.key == AlphabetSections.OTHER) context.getString(R.string.library_scroller_other)
+                     else section.label,
+        mediaType  = when (list) {
+            BrowseNode.Albums    -> MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS
+            BrowseNode.Artists   -> MediaMetadata.MEDIA_TYPE_FOLDER_ARTISTS
+            BrowseNode.Playlists -> MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS
+            else                 -> MediaMetadata.MEDIA_TYPE_FOLDER_MIXED
+        },
+        childStyle = if (list == BrowseNode.Albums) MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM else null,
+    )
+
+    /**
+     * A browse item for any id: a folder, a letter folder (null once its letter has no rows), an album / artist /
+     * playlist, a track (bare or in a list).
+     */
     private suspend fun itemFor(mediaId: String): MediaItem? {
         val node = BrowseIds.parse(mediaId)
         return when (node) {
             null -> TrackKey.parseMediaId(mediaId)?.let { library.track(it) }?.let(items::playable)
-            BrowseNode.Root, BrowseNode.Tracks, BrowseNode.Albums, BrowseNode.Artists, BrowseNode.Playlists,
+            BrowseNode.Root, BrowseNode.Tracks, BrowseNode.Artists, BrowseNode.Playlists,
             BrowseNode.Recent -> folderItem(node)
+            BrowseNode.Albums       -> folderItem(node, grouped = albumsGrouped())
+            // The label of a script section is its first title's first character: regroup the list to find it.
+            is BrowseNode.Section   -> rowsOf(node.list)
+                ?.let { rows -> AutoBrowseGrouping.sectionsOf(rows.sortKeys).firstOrNull { it.key == node.key } }
+                ?.let { sectionFolder(node.list, it) }
             is BrowseNode.Album     -> library.album(node.key).first()?.let(items::album)
             is BrowseNode.Artist    -> library.artist(node.key).first()?.let(items::artist)
             is BrowseNode.Playlist  -> library.playlist(node.id).first()?.let(items::playlist)
@@ -361,12 +458,27 @@ class SheliakMediaLibraryCallback(
         val repeat: RepeatMode,
     )
 
+    /**
+     * A top-level list's rows ([rowsOf]): [sortKeys], one per row in list order, and how a row becomes a browse
+     * item — built only for the rows a request lists, not for the whole library.
+     */
+    private class ListRows(
+        val sortKeys: List<String>,
+        private val itemAt: (row: Int, parent: BrowseNode) -> MediaItem,
+    ) {
+        val size: Int get() = sortKeys.size
+
+        /** [rows] as browse items listed inside [parent] (the list itself, or one of its letter folders). */
+        fun browseItems(parent: BrowseNode, rows: Iterable<Int>): List<MediaItem> = rows.map { itemAt(it, parent) }
+    }
+
     companion object {
         private const val TAG = "SheliakSession"
 
-        /** Rows per browse list (Android Auto shows far fewer; search reaches the rest). */
-        const val LIST_CAP: Int = 500
+        /** Tracks in Recently played (the tab, and a voice "play …" with no query): a window, not a whole list. */
         const val RECENT_CAP: Int = 50
+
+        /** Hits per kind for Auto's search and a voice "play …". */
         const val SEARCH_LIMIT: Int = 50
     }
 }

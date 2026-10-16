@@ -91,15 +91,17 @@ fun playerSurfaceAllowed(top: NavKey?): Boolean = when (top) {
 }
 
 /**
- * The library's five tabs, in suite order — the order of the bar's and the rails' items, Search in the CENTRE
- * ([SuiteActionTab]). Not navigation keys: the selected tab is saveable state inside the [Library] entry, so
- * switching tabs never touches the back stack.
+ * The library's five tabs, in the compact BAR's order — Search in the centre. The rails draw the same five with
+ * Search moved to the end (`suiteItemOrder`, SuiteLayout.kt); nothing else depends on the order. Not navigation
+ * keys: the selected tab is saveable state inside the [Library] entry, so switching tabs never touches the back
+ * stack.
  */
 enum class LibraryTab { TRACKS, ALBUMS, SEARCH, ARTISTS, PLAYLISTS }
 
 /**
- * The tab the suite draws as its action — inside an M3 Expressive shape instead of the selection pill — and
- * places in the centre of the bar and the rails: Search.
+ * The one tab that is not a list of the library: Search. Re-tapping it focuses the search field instead of
+ * scrolling a list to the top ([tabReselectFor]), and it is the tab the rails move to the end of their group
+ * (`suiteItemOrder`). The suite draws it exactly like the other four items — nothing is drawn as an action.
  */
 val SuiteActionTab: LibraryTab = LibraryTab.SEARCH
 

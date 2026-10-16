@@ -6,8 +6,9 @@ import kotlin.math.abs
 
 /*
  * The pure rules behind the art carousel (AlbumArtCarousel) and the wavy seek bar: which carousel item is the
- * playing row, how the carousel follows the player, what a settled swipe does, the hero geometry, and where a
- * touch on the seek bar lands. No Compose runtime — unit-tested in ArtCarouselRulesTest.
+ * playing row, how the carousel follows the player, what a settled swipe does, the hero geometry (the carousel's
+ * size and the large item Material must lay out for the queue's length), and where a touch on the seek bar
+ * lands. No Compose runtime — unit-tested in ArtCarouselRulesTest.
  *
  * One carousel item per queue row, in PLAY order (`PlayerState.queue`), so item i IS queue row i.
  */
@@ -98,23 +99,55 @@ fun carouselSettled(
 }
 
 /**
- * The hero carousel's size: a square art of [itemSide] in the centre and a peek of [peek] (plus [spacing]) on
- * each side, [width] in all.
+ * The hero carousel's size: a square art of [itemSide], [width] in all (room for a peek and a gap on each side),
+ * and [largeItemWidth] — the width Material's large (focal) item must take for the queue's length, passed as
+ * `preferredItemWidth` (see [heroCarouselGeometry]). [largeItemWidth] is never less than [itemSide]; where it is
+ * more, the art stays an [itemSide] square centred in the item.
  */
-data class HeroCarouselGeometry(val itemSide: Dp, val width: Dp)
+data class HeroCarouselGeometry(val itemSide: Dp, val width: Dp, val largeItemWidth: Dp)
 
 /**
- * Fits the centred hero carousel into [availableWidth] × [availableHeight]: the art is square, as tall as the
- * room allows and narrow enough to leave a [peek]-wide neighbour and a [spacing] gap on both sides. The carousel
- * is exactly as wide as that arrangement, so Material's hero keylines find the large item at exactly
- * [HeroCarouselGeometry.itemSide] (small items pinned to [peek] by passing it as both the minimum and the
- * maximum small size).
+ * Fits the centred hero carousel into [availableWidth] × [availableHeight] for a queue of [queueSize] tracks. The
+ * art is square, as tall as the room allows and narrow enough to leave a [peek]-wide neighbour and a [spacing]
+ * gap on both sides; the carousel is that wide whatever the queue's length, so the art keeps its size when tracks
+ * are added or removed.
+ *
+ * [HeroCarouselGeometry.largeItemWidth] is what makes Material lay out ONE large item. Its hero keylines
+ * (material3 1.5.0-beta01 `heroKeylineList` + `Arrangement.findLowestCostArrangement`, read from the bytecode) keep
+ * two small slots only for three or more items (centred), one for two (start-aligned), none for one. They then try
+ * large-item counts from `ceil(width / preferred)` down, fit each to the width with the small items pinned to
+ * [peek] (passed as both the minimum and the maximum), and keep the fit with the lowest
+ * `|preferred − fitted large| × priority` (priority 1, 2, … in that order; a cost of 0 wins at once). With the
+ * 40dp peek and 8dp gap, passing [HeroCarouselGeometry.itemSide] for every queue gave a two-track queue's spare
+ * peek + gap to the large item: ONE large item of `itemSide + 48dp` cost 48 × 2 and lost to TWO of
+ * `(itemSide + 40dp) / 2` (cost `(itemSide − 40dp) / 2`) whenever the art was under 232dp — the pop-out card's two
+ * portrait crops (fix round 2); a one-track queue lost the same way under 472dp. So the preferred width is exactly
+ * what one large item fills — the width less one peek + gap per small slot Material keeps — and that fit costs 0:
+ * [HeroCarouselGeometry.itemSide] from three tracks on (unchanged), `itemSide + peek + spacing` for two (what the
+ * full player already landed on), the whole width for one.
  */
-fun heroCarouselGeometry(availableWidth: Dp, availableHeight: Dp, peek: Dp, spacing: Dp): HeroCarouselGeometry {
-    val sides = (peek + spacing) * 2
-    val side = minOf(availableHeight, availableWidth - sides).coerceAtLeast(0.dp)
-    return HeroCarouselGeometry(itemSide = side, width = side + sides)
+fun heroCarouselGeometry(
+    availableWidth : Dp,
+    availableHeight: Dp,
+    queueSize      : Int,
+    peek           : Dp,
+    spacing        : Dp,
+): HeroCarouselGeometry {
+    val neighbour = peek + spacing
+    val side = minOf(availableHeight, availableWidth - neighbour * 2).coerceAtLeast(0.dp)
+    val width = side + neighbour * 2
+    return HeroCarouselGeometry(
+        itemSide       = side,
+        width          = width,
+        largeItemWidth = width - neighbour * heroSmallSlots(queueSize),
+    )
 }
+
+/**
+ * How many small (peek) slots Material's hero keylines keep for [queueSize] items: two from three items on (one
+ * each side, centred), one for two (start-aligned), none for one.
+ */
+private fun heroSmallSlots(queueSize: Int): Int = (queueSize - 1).coerceIn(0, 2)
 
 /** Where a touch at [x] (px) on a seek bar [widthPx] wide lands, as a 0..1 share of the track. */
 fun seekFractionAt(x: Float, widthPx: Float): Float =

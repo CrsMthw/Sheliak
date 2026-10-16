@@ -98,8 +98,9 @@ private val BackStackSavedStateConfiguration = SavedStateConfiguration {
  * following the finger. The tabs — Search among them — and a two-pane tab's selection are state inside that
  * entry, never keys.
  *
- * Every entry the player surface shows over ([playerSurfaceAllowed]) provides its bottom fades the mini bar's
- * room ([LocalBottomFadeExtra], [ProvidePlayerSurfaceRoom]), so each list's fade ends right above the mini bar.
+ * Every entry the player surface shows over ([playerSurfaceAllowed]) provides its lists the mini bar's room
+ * ([LocalBottomFadeExtra], [ProvidePlayerSurfaceRoom]), so each list's trailing spacer keeps that room and the last
+ * row scrolls clear of the bar; the fade itself stays at the content's edge, under the bar.
  *
  * Back-stack rules are pure functions in NavKeys.kt: the stack always starts with Library, everything else
  * pushes on top, and the player surface shows only where [playerSurfaceAllowed] says. The start is Intro until
@@ -306,7 +307,7 @@ fun SheliakNavGraph(
 }
 
 /**
- * Gives [content] — one navigation entry, [key] — the bottom room its fades keep for the floating player surface
+ * Gives [content] — one navigation entry, [key] — the bottom room its lists keep for the floating player surface
  * ([LocalBottomFadeExtra]): the host's live inset on an entry the surface shows over, 0dp on any other
  * ([playerSurfaceRoomFor]). Per entry, so an entry pushed over the library never inherits the inset the host
  * holds for it.

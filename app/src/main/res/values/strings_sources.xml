@@ -15,14 +15,13 @@
     <string name="sources_remove_body">Its tracks, albums and playlists leave your library. Nothing changes on the server.</string>
     <string name="sources_cancel">Cancel</string>
     <string name="sources_remove_failed">Couldn’t remove the source</string>
-    <!-- The Plex account section, shown while a plex.tv account token is stored on the phone -->
+    <!-- The Plex account section, shown while a plex.tv account token is stored on the phone: one row, "Sign out from Plex" (no subtitle), behind a confirmation -->
     <string name="sources_section_account">Plex account</string>
-    <string name="sources_forget_account">Forget Plex account</string>
-    <string name="sources_forget_account_desc">Signed in on this phone, so servers you add skip the sign-in</string>
-    <string name="sources_forget_account_title">Forget your Plex account?</string>
-    <string name="sources_forget_account_body">Sheliak signs out of Plex on this phone. Servers you’ve added keep working; adding another one asks you to sign in again.</string>
-    <string name="sources_forget_account_confirm">Forget</string>
-    <string name="sources_forget_account_failed">Couldn’t forget the Plex account</string>
+    <string name="sources_sign_out">Sign out from Plex</string>
+    <string name="sources_sign_out_title">Sign out from Plex?</string>
+    <string name="sources_sign_out_body">Sheliak signs out of Plex on this phone. Servers you’ve added keep working; adding another one asks you to sign in again.</string>
+    <string name="sources_sign_out_confirm">Sign out</string>
+    <string name="sources_sign_out_failed">Couldn’t sign out from Plex</string>
     <string name="sources_ok">OK</string>
     <!-- One source's second line: %1$s is its track count ("1,204 tracks"), %2$s its sync status -->
     <string name="sources_row_summary">%1$s · %2$s</string>

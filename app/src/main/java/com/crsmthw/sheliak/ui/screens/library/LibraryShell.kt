@@ -89,9 +89,9 @@ internal class LibraryNavigation(
  * The Library navigation entry: the navigation suite with the five tabs, and ONE layout for all of them —
  *
  * ```
- * SheliakNavigationSuite                  bar / collapsed rail / expanded rail — Tracks, Albums, SEARCH (centre,
- *                                         in an M3 Expressive shape), Artists, Playlists; consumes what it
- *                                         covers, publishes its extent to the player surface
+ * SheliakNavigationSuite                  bar / collapsed rail / expanded rail — five plain items: Tracks, Albums,
+ *                                         SEARCH (the bar's centre), Artists, Playlists; the rails put Search
+ *                                         last; consumes what it covers, publishes its extent to the player surface
  *   Scaffold(contentWindowInsets = 0)
  *     Column(horizontalSystemBarsPadding)
  *       RootTopBar                        ONE bar: hoisted state, Settings gear; only its TEXT changes per tab;
@@ -104,8 +104,8 @@ internal class LibraryNavigation(
  * The selected tab — and each list-detail tab's selected item, and the Search tab's query, page and positions —
  * is saveable state here, never a back-stack key, so a tab change or a pick in a two-pane tab neither pushes nor
  * replaces anything; system back on another tab returns to Tracks first ([libraryTabOnBack]). Every tab carries a
- * subtitle (its count; "Syncing… N" on Tracks while a source syncs; "N results" on Search), so the large bar is
- * one height on all five.
+ * non-null subtitle (its count; "Syncing… N" on Tracks while a source syncs; on Search an empty line while the
+ * field is blank, else the count of the result tab shown), so the large bar is one height on all five.
  *
  * Search is a tab like the others: the first tap shows its page with the field NOT focused; re-tapping the
  * selected Search tab focuses the field and raises the keyboard ([tabReselectFor]); leaving the tab — another
@@ -239,15 +239,15 @@ private fun LibraryContent(
             RootTopBar(
                 title          = stringResource(tab.titleRes),
                 subtitle       = if (tab == LibraryTab.SEARCH) {
-                    searchSubtitle(searchViewModel, search, libraryTracks = counts.tracks)
+                    searchSubtitle(searchViewModel, search)
                 } else {
                     subtitleFor(tab, counts, syncProgress)
                 },
                 scrollBehavior = scrollBehavior,
                 actions        = { SettingsAction(onClick = onOpenSettings) },
                 containerColor = paneColor,
-                // A tab change crossfades the words; a count ticking during a sync (or a result count changing
-                // as the query is typed) is written in place.
+                // A tab change crossfades the words; a count ticking during a sync (or Search's result count
+                // appearing, changing with the query or the result tab, and going) is written in place.
                 textKey        = tab,
                 // The search field rides under the bar on the Search tab only. Its slot opens and closes on the
                 // one finite spec, so the content below glides instead of jumping when the tab changes.
@@ -354,7 +354,8 @@ private fun PublishTwoPane(twoPane: Boolean) {
 
 /**
  * The bar subtitle for a library tab: its own count, or "Syncing… N" on Tracks while a source syncs. (Search's
- * subtitle is its own — `searchSubtitle` — and is asked of it directly; here it reads like Tracks.)
+ * subtitle is its own — `searchSubtitle`, empty while the field is blank — and is asked of it directly; the
+ * Search branches here and in [countRes] only keep the `when`s exhaustive.)
  */
 @Composable
 private fun subtitleFor(tab: LibraryTab, counts: LibraryCounts, syncProgress: Int?): String = when {

@@ -1,6 +1,7 @@
 package com.crsmthw.sheliak.ui.components
 
 import androidx.compose.runtime.Immutable
+import com.crsmthw.sheliak.util.AlphabetSections
 import kotlin.math.floor
 
 /*
@@ -8,6 +9,9 @@ import kotlin.math.floor
  * where each letter starts, and the two mappings the scroller draws with — a finger's place on the track to a
  * letter, and the list's scroll position back to a place on the track. Pure Kotlin, unit-tested
  * (AlphabetIndexTest); the only Compose import is the `@Immutable` marker.
+ *
+ * Which section a row falls under, and a section's label, are [AlphabetSections]' rule (util/, shared with
+ * Android Auto's letter folders so the app and the car always agree); this file only delegates to it.
  *
  * ### Section space
  *
@@ -18,44 +22,18 @@ import kotlin.math.floor
  * and the list never disagree about which letter is showing.
  */
 
-/** The section key of digits, symbols, an empty key and letters the scroller cannot letter; shown as "#". */
-const val ALPHABET_OTHER_SECTION: String = "#"
-
-/** Marks a section key that stands for a whole caseless script (see [alphabetSectionKey]). */
-private const val SCRIPT_SECTION_PREFIX = "script:"
+/**
+ * The section key of digits, symbols, an empty key and letters the scroller cannot letter; shown as "#" (the
+ * scroller maps it to its string resource). [AlphabetSections.OTHER], kept here for the scroller's own code.
+ */
+const val ALPHABET_OTHER_SECTION: String = AlphabetSections.OTHER
 
 /**
- * The section a row's sort key falls under. The keys are the index's normalised sort strings (lower-case,
- * diacritics stripped after a Latin / Greek / Cyrillic letter, leading punctuation dropped), so only the first
- * character matters:
- *
- * - a letter of a CASED script — Latin, Greek, Cyrillic, Armenian, and Latin letters NFD cannot fold (ø, æ, ł) —
- *   is its own section, the upper-case letter ("b" → "B", "ж" → "Ж", "ø" → "Ø"); a Latin letter with no
- *   single-letter upper case ("ß") is its own section as it is;
- * - a letter of a CASELESS script (Han, kana, Hangul, Arabic, Hebrew, Devanagari, Thai…) groups with every other
- *   letter of that script — one section per script rather than one per character, which would turn a Japanese
- *   library into hundreds of slots; the section's LABEL is the first such character in the list
- *   ([alphabetIndexOf]);
- * - a digit, a symbol, punctuation or an empty key is [ALPHABET_OTHER_SECTION] ("#").
+ * The section a row's sort key falls under ([AlphabetSections.keyOf]): its upper-case first letter for a cased
+ * script, one section per caseless script (labelled by its first character in the list, [alphabetIndexOf]), and
+ * [ALPHABET_OTHER_SECTION] for a digit, a symbol or an empty key.
  */
-fun alphabetSectionKey(sortKey: String): String {
-    if (sortKey.isEmpty()) return ALPHABET_OTHER_SECTION
-    val cp = sortKey.codePointAt(0)
-    if (!Character.isLetter(cp)) return ALPHABET_OTHER_SECTION
-    val upper = Character.toUpperCase(cp)
-    val script = Character.UnicodeScript.of(cp)
-    // A Latin letter with no single-letter upper case (ß) is still a letter of its own, not a script group.
-    val cased = upper != cp || Character.toLowerCase(cp) != cp || script == Character.UnicodeScript.LATIN
-    return if (cased) String(Character.toChars(upper)) else SCRIPT_SECTION_PREFIX + script.name
-}
-
-/** The label a section key shows: the key itself, except a script section, labelled by its first character. */
-private fun sectionLabel(key: String, firstSortKey: String): String =
-    if (key.startsWith(SCRIPT_SECTION_PREFIX)) {
-        String(Character.toChars(Character.toUpperCase(firstSortKey.codePointAt(0))))
-    } else {
-        key
-    }
+fun alphabetSectionKey(sortKey: String): String = AlphabetSections.keyOf(sortKey)
 
 /**
  * The sections of a list sorted by [sortKeys] (one key per row, in list order): each section once, in the order
@@ -71,7 +49,7 @@ fun alphabetIndexOf(sortKeys: List<String>): AlphabetIndex {
     sortKeys.forEachIndexed { row, sortKey ->
         val key = alphabetSectionKey(sortKey)
         if (seen.add(key)) {
-            labels += sectionLabel(key, sortKey)
+            labels += AlphabetSections.labelOf(key, sortKey)
             starts += row
         }
     }

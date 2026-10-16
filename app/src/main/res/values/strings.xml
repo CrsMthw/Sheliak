@@ -2,7 +2,8 @@
 <resources>
     <string name="app_name">Sheliak</string>
 
-    <!-- Navigation: the library's five tabs (Search is the centre one) and the shared back arrow -->
+    <!-- Navigation: the library's five tabs (Search is the centre item of the bar and the last item of the
+         rails) and the shared back arrow -->
     <string name="nav_tracks">Tracks</string>
     <string name="nav_albums">Albums</string>
     <string name="nav_artists">Artists</string>
@@ -33,7 +34,8 @@
     <!-- Intro's primary action once a source exists -->
     <string name="intro_continue">Continue</string>
 
-    <!-- Library tabs. Each tab's bar subtitle is its own count: "12 tracks", "3 albums", "5 artists", "2 playlists". -->
+    <!-- Library tabs. Each tab's bar subtitle is its own count: "12 tracks", "3 albums", "5 artists", "2 playlists".
+         The Search tab's subtitle uses the same four for the result tab shown ("12 tracks" found, "3 albums", …). -->
     <plurals name="library_track_count">
         <item quantity="one">%1$d track</item>
         <item quantity="other">%1$d tracks</item>

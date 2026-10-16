@@ -16,7 +16,8 @@
     <string name="library_all_tracks">All tracks</string>
 
     <!-- The alphabet fast scroller's bubble (ui/components/AlphabetScroller.kt) for titles that start with a digit,
-         a symbol, or a letter the scroller has no section for. The other sections are the titles' own letters. -->
+         a symbol, or a letter the scroller has no section for. The other sections are the titles' own letters.
+         Android Auto's "#" letter folder (service/SheliakMediaLibraryCallback.kt) is titled with it too. -->
     <string name="library_scroller_other">#</string>
 
     <!-- Two-pane tabs (unfolded / tablet): the right pane before anything is picked -->

@@ -52,6 +52,49 @@ class SuiteLayoutTest {
         assertEquals(SuiteLayout.ExpandedRail, suiteLayoutFor(windowWidthOf(882)))
     }
 
+    // ── suiteItemOrder ──────────────────────────────────────────────────────
+
+    @Test
+    fun `the bar puts Search in the centre`() {
+        assertEquals(
+            listOf(LibraryTab.TRACKS, LibraryTab.ALBUMS, LibraryTab.SEARCH, LibraryTab.ARTISTS, LibraryTab.PLAYLISTS),
+            suiteItemOrder(SuiteLayout.Bar),
+        )
+    }
+
+    @Test
+    fun `both rails put Search last, at the bottom`() {
+        listOf(SuiteLayout.CollapsedRail, SuiteLayout.ExpandedRail).forEach { layout ->
+            assertEquals(
+                listOf(LibraryTab.TRACKS, LibraryTab.ALBUMS, LibraryTab.ARTISTS, LibraryTab.PLAYLISTS, LibraryTab.SEARCH),
+                suiteItemOrder(layout),
+                "$layout",
+            )
+        }
+    }
+
+    @Test
+    fun `the collapsed and the expanded rail share one order`() {
+        assertEquals(suiteItemOrder(SuiteLayout.CollapsedRail), suiteItemOrder(SuiteLayout.ExpandedRail))
+    }
+
+    @Test
+    fun `every layout shows all five tabs exactly once`() {
+        SuiteLayout.entries.forEach { layout ->
+            val order = suiteItemOrder(layout)
+            assertEquals(LibraryTab.entries.size, order.size, "$layout")
+            assertEquals(LibraryTab.entries.toSet(), order.toSet(), "$layout")
+        }
+    }
+
+    @Test
+    fun `the four library tabs keep their relative order everywhere`() {
+        val libraryTabs = listOf(LibraryTab.TRACKS, LibraryTab.ALBUMS, LibraryTab.ARTISTS, LibraryTab.PLAYLISTS)
+        SuiteLayout.entries.forEach { layout ->
+            assertEquals(libraryTabs, suiteItemOrder(layout).filter { it != LibraryTab.SEARCH }, "$layout")
+        }
+    }
+
     // ── list-detail ─────────────────────────────────────────────────────────
 
     @Test

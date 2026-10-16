@@ -105,3 +105,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pop-out card's art is always registered for the shared element, so the card-to-mini-bar flight works for plain
   and predictive back; covers draw from memory on the first frame, using the nearest size already loaded while a
   bigger one loads, so the placeholder no longer flashes when a detail opens, a track starts or the player closes.
+- Fix round 2 (Cris's re-test of round 1, 2026-10-16): the bottom fade stays at the content's edge — above the
+  navigation bar, the keyboard or a two-pane card's edge — and no longer lifts for the mini bar, which floats over it;
+  the fade and the list's end room are no longer lost under the compact bar or the keyboard (they were one summed
+  inset that the consumed insets cancelled out); the last row rests just above the mini bar's card.
+- Search is a plain navigation item — no shape, no morph — in the centre of the bottom bar and last on the rails;
+  the Search title shows no count while the field is blank and the count of the result tab shown with a query;
+  "No results for …" is large and bold.
+- The pop-out card's scrim is derived from the player surface's own state instead of a child animation, so folding
+  with the card open and backing out of the full player no longer leaves the Library dimmed (a Compose animation
+  defect, registered as a provisional workaround).
+- Settings → Manage sources: "Forget Plex account" is now "Sign out from Plex", with no subtitle.
+- Android Auto: Tracks, Albums, Artists and Playlists longer than 100 items are letter folders — the same letters as
+  the in-app fast scroller — with every item inside, replacing the 500-row cap that ended the lists at B or D; a
+  track played from a letter folder queues that letter from it.
+- The artist page's Albums row is the same multi-browse carousel as Most played, with the title and year on the
+  cover; the uncontained row clipped its labels' first letters and its free fling bounced at the end.
+- The player's art carousel lays a one- or two-track queue out as one square cover with a peek (two tracks) or one
+  centred square (one track), instead of two portrait crops in the pop-out card.
+- 672 JVM unit tests.

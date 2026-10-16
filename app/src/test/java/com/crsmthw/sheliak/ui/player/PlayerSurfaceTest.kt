@@ -207,4 +207,101 @@ class PlayerSurfaceTest {
         assertEquals(300, unwindMillis(1.5f, 300_000_000L, floorMillis = 300))
         assertEquals(0, unwindMillis(-0.2f, 300_000_000L, floorMillis = 300))
     }
+
+    // ── panelScrimShare / PanelScrimSegment (fix round 2, item 41) ──────────
+    // Every progress and share here is a short binary fraction, so the expected floats are exact.
+
+    @Test
+    fun `at rest the scrim is full on the card and gone everywhere else, whatever came before`() {
+        assertEquals(1f, panelScrimShare(PlayerSurface.Panel, PlayerSurface.Panel, progress = 0f, startShare = 0f))
+        assertEquals(0f, panelScrimShare(PlayerSurface.None, PlayerSurface.None, progress = 0f, startShare = 1f))
+        assertEquals(0f, panelScrimShare(PlayerSurface.Bar, PlayerSurface.Bar, progress = 0.5f, startShare = 1f))
+    }
+
+    @Test
+    fun `into the card the scrim fades in with the progress`() {
+        assertEquals(0.25f, panelScrimShare(PlayerSurface.Bar, PlayerSurface.Panel, progress = 0.25f, startShare = 0f))
+        // A back gesture off the full player seeking the card in.
+        assertEquals(0.5f, panelScrimShare(PlayerSurface.None, PlayerSurface.Panel, progress = 0.5f, startShare = 0f))
+    }
+
+    @Test
+    fun `out of the card the scrim fades out with the progress`() {
+        assertEquals(0.75f, panelScrimShare(PlayerSurface.Panel, PlayerSurface.Bar, progress = 0.25f, startShare = 1f))
+        assertEquals(0f, panelScrimShare(PlayerSurface.Panel, PlayerSurface.None, progress = 1f, startShare = 1f))
+    }
+
+    @Test
+    fun `a moving segment starts from the share it is given`() {
+        assertEquals(0.75f, panelScrimShare(PlayerSurface.Panel, PlayerSurface.Bar, progress = 0f, startShare = 0.75f))
+        assertEquals(0.375f, panelScrimShare(PlayerSurface.Panel, PlayerSurface.Bar, progress = 0.5f, startShare = 0.75f))
+        assertEquals(0.625f, panelScrimShare(PlayerSurface.Bar, PlayerSurface.Panel, progress = 0.5f, startShare = 0.25f))
+    }
+
+    @Test
+    fun `the progress is clamped`() {
+        assertEquals(1f, panelScrimShare(PlayerSurface.Bar, PlayerSurface.Panel, progress = 1.5f, startShare = 0f))
+        assertEquals(0f, panelScrimShare(PlayerSurface.Bar, PlayerSurface.Panel, progress = -0.25f, startShare = 0f))
+    }
+
+    @Test
+    fun `item 41 - after a fold snaps the card away, no scrim is left anywhere`() {
+        val scrim = PanelScrimSegment()
+        assertEquals(1f, scrim.share(PlayerSurface.Panel, PlayerSurface.Panel, 0f))  // unfolded, card open
+        assertEquals(0f, scrim.share(PlayerSurface.None, PlayerSurface.None, 0f))    // fold: snapped, full player
+        assertEquals(0f, scrim.share(PlayerSurface.None, PlayerSurface.Bar, 0.5f))   // back gesture brings the bar in
+        assertEquals(0f, scrim.share(PlayerSurface.None, PlayerSurface.Bar, 1f))     // committed
+        assertEquals(0f, scrim.share(PlayerSurface.Bar, PlayerSurface.Bar, 0f))      // the bar at rest; unfold
+        assertEquals(0.5f, scrim.share(PlayerSurface.Bar, PlayerSurface.Panel, 0.5f)) // tap: the card opens over it
+        assertEquals(1f, scrim.share(PlayerSurface.Panel, PlayerSurface.Panel, 0f))
+        assertEquals(0.5f, scrim.share(PlayerSurface.Panel, PlayerSurface.Bar, 0.5f)) // close
+        assertEquals(0f, scrim.share(PlayerSurface.Bar, PlayerSurface.Bar, 0f))
+    }
+
+    @Test
+    fun `unfolding with the full player open shows the card over its scrim at once`() {
+        val scrim = PanelScrimSegment()
+        assertEquals(0f, scrim.share(PlayerSurface.None, PlayerSurface.None, 0f))
+        assertEquals(1f, scrim.share(PlayerSurface.Panel, PlayerSurface.Panel, 0f))  // the swap's snap to the card
+    }
+
+    @Test
+    fun `a retarget mid-flight continues from the share on screen instead of jumping`() {
+        val scrim = PanelScrimSegment()
+        assertEquals(0f, scrim.share(PlayerSurface.None, PlayerSurface.None, 0f))       // the full player on top
+        assertEquals(0.75f, scrim.share(PlayerSurface.None, PlayerSurface.Panel, 0.75f)) // its back arrow: card rising
+        // A back swipe on the card still rising from the full player (opening from None): the state restarts at
+        // fraction 0 with the OLD target (the card) as its current state. (Opening from the bar it is no retarget:
+        // the current state is still the bar, and the host does not seek.)
+        assertEquals(0.75f, scrim.share(PlayerSurface.Panel, PlayerSurface.Bar, 0f))
+        assertEquals(0.375f, scrim.share(PlayerSurface.Panel, PlayerSurface.Bar, 0.5f))
+        // Committed: the close plays out from there.
+        assertEquals(0f, scrim.share(PlayerSurface.Panel, PlayerSurface.Bar, 1f))
+        assertEquals(0f, scrim.share(PlayerSurface.Bar, PlayerSurface.Bar, 0f))
+    }
+
+    @Test
+    fun `the full-screen button on a moving card fades the scrim out from where it is`() {
+        val scrim = PanelScrimSegment()
+        assertEquals(0f, scrim.share(PlayerSurface.Bar, PlayerSurface.Bar, 0f))
+        assertEquals(0.5f, scrim.share(PlayerSurface.Bar, PlayerSurface.Panel, 0.5f))   // opening
+        assertEquals(0.5f, scrim.share(PlayerSurface.Panel, PlayerSurface.None, 0f))    // retarget to None
+        assertEquals(0.25f, scrim.share(PlayerSurface.Panel, PlayerSurface.None, 0.5f))
+        assertEquals(0f, scrim.share(PlayerSurface.None, PlayerSurface.None, 0f))
+    }
+
+    @Test
+    fun `a back swipe on the card released early winds the scrim back to full`() {
+        val scrim = PanelScrimSegment()
+        assertEquals(1f, scrim.share(PlayerSurface.Panel, PlayerSurface.Panel, 0f))
+        assertEquals(0.75f, scrim.share(PlayerSurface.Panel, PlayerSurface.Bar, 0.25f)) // the finger
+        assertEquals(0.875f, scrim.share(PlayerSurface.Panel, PlayerSurface.Bar, 0.125f)) // the unwind
+        assertEquals(1f, scrim.share(PlayerSurface.Panel, PlayerSurface.Panel, 0f))     // snapped back
+    }
+
+    @Test
+    fun `the first state seen shows at its rest share`() {
+        assertEquals(1f, PanelScrimSegment().share(PlayerSurface.Panel, PlayerSurface.Panel, 0f)) // restored card
+        assertEquals(0f, PanelScrimSegment().share(PlayerSurface.Bar, PlayerSurface.Bar, 0f))
+    }
 }

@@ -73,7 +73,7 @@ class NavKeysTest {
     // ── Library tabs ────────────────────────────────────────────────────────
 
     @Test
-    fun `the library tabs are in suite order, Search in the centre`() {
+    fun `the library tabs are in the bar's order, Search in the centre`() {
         assertEquals(
             listOf(LibraryTab.TRACKS, LibraryTab.ALBUMS, LibraryTab.SEARCH, LibraryTab.ARTISTS, LibraryTab.PLAYLISTS),
             LibraryTab.entries,
@@ -81,7 +81,7 @@ class NavKeysTest {
     }
 
     @Test
-    fun `the suite action is Search, the centre item`() {
+    fun `the suite action is Search, the bar's centre item`() {
         assertEquals(LibraryTab.SEARCH, SuiteActionTab)
         assertEquals(LibraryTab.entries.size / 2, LibraryTab.entries.indexOf(SuiteActionTab))
     }

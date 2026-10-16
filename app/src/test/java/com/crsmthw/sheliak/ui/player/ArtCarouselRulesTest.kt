@@ -1,11 +1,19 @@
 package com.crsmthw.sheliak.ui.player
 
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.roundToInt
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
-/** The art carousel's index ↔ queue mapping and the wavy seek bar's geometry (M1 fix round 1, items 50 / 52). */
+/**
+ * The art carousel's index ↔ queue mapping, its hero geometry (fix round 2: short queues) and the wavy seek bar's
+ * geometry (M1 fix round 1, items 50 / 52).
+ */
 class ArtCarouselRulesTest {
 
     // ── carouselItemFor ─────────────────────────────────────────────────────
@@ -111,22 +119,134 @@ class ArtCarouselRulesTest {
 
     @Test
     fun `the art is square and leaves a peek and a gap on both sides`() {
-        val geometry = heroCarouselGeometry(availableWidth = 400.dp, availableHeight = 600.dp, peek = 40.dp, spacing = 8.dp)
+        val geometry = heroCarouselGeometry(availableWidth = 400.dp, availableHeight = 600.dp, queueSize = 10, peek = 40.dp, spacing = 8.dp)
         assertEquals(304.dp, geometry.itemSide)
         assertEquals(400.dp, geometry.width)
     }
 
     @Test
     fun `a short area makes the art as tall as the room and the carousel narrower`() {
-        val geometry = heroCarouselGeometry(availableWidth = 600.dp, availableHeight = 300.dp, peek = 40.dp, spacing = 8.dp)
+        val geometry = heroCarouselGeometry(availableWidth = 600.dp, availableHeight = 300.dp, queueSize = 10, peek = 40.dp, spacing = 8.dp)
         assertEquals(300.dp, geometry.itemSide)
         assertEquals(396.dp, geometry.width)
     }
 
     @Test
     fun `no room gives no art rather than a negative size`() {
-        val geometry = heroCarouselGeometry(availableWidth = 60.dp, availableHeight = 300.dp, peek = 40.dp, spacing = 8.dp)
+        val geometry = heroCarouselGeometry(availableWidth = 60.dp, availableHeight = 300.dp, queueSize = 10, peek = 40.dp, spacing = 8.dp)
         assertEquals(0.dp, geometry.itemSide)
+    }
+
+    @Test
+    fun `from three tracks on the large item is the art`() {
+        for (queueSize in listOf(3, 4, 50)) {
+            val geometry = heroCarouselGeometry(availableWidth = 390.dp, availableHeight = 135.dp, queueSize = queueSize, peek = 40.dp, spacing = 8.dp)
+            assertEquals(135.dp, geometry.largeItemWidth)
+            // Exactly one large item between two peeks fills the carousel.
+            assertEquals(geometry.width, geometry.largeItemWidth + (40.dp + 8.dp) * 2)
+        }
+    }
+
+    @Test
+    fun `a two-track queue's large item fills the carousel beside ONE peek`() {
+        // The pop-out card of Cris's report: an art area 390 x 135dp.
+        val geometry = heroCarouselGeometry(availableWidth = 390.dp, availableHeight = 135.dp, queueSize = 2, peek = 40.dp, spacing = 8.dp)
+        assertEquals(135.dp, geometry.itemSide)
+        assertEquals(231.dp, geometry.width)
+        assertEquals(183.dp, geometry.largeItemWidth)
+        assertEquals(geometry.width, geometry.largeItemWidth + 40.dp + 8.dp)
+    }
+
+    @Test
+    fun `a one-track queue's large item is the whole carousel`() {
+        val geometry = heroCarouselGeometry(availableWidth = 390.dp, availableHeight = 135.dp, queueSize = 1, peek = 40.dp, spacing = 8.dp)
+        assertEquals(135.dp, geometry.itemSide)
+        assertEquals(geometry.width, geometry.largeItemWidth)
+    }
+
+    @Test
+    fun `the art and the carousel keep their size whatever the queue's length`() {
+        val sizes = (1..5).map { heroCarouselGeometry(availableWidth = 600.dp, availableHeight = 300.dp, queueSize = it, peek = 40.dp, spacing = 8.dp) }
+        assertEquals(setOf(300.dp), sizes.map { it.itemSide }.toSet())
+        assertEquals(setOf(396.dp), sizes.map { it.width }.toSet())
+        sizes.forEach { assertTrue(it.largeItemWidth >= it.itemSide) }
+    }
+
+    // ── heroCarouselGeometry under Material's hero keylines ─────────────────
+
+    @Test
+    fun `the port reproduces the reported layouts with the art as the preferred width`() {
+        // The card (art 135dp, carousel 231dp), two tracks: two equal large items of 87.5dp — Cris's two portrait
+        // crops; one track: one item of 111.5dp, also a crop.
+        assertEquals(HeroFit(largeCount = 2, largeSize = 87.5f), materialHeroFit(width = 231f, preferred = 135f, spacing = 8f, itemCount = 2, peek = 40f))
+        assertEquals(HeroFit(largeCount = 2, largeSize = 111.5f), materialHeroFit(width = 231f, preferred = 135f, spacing = 8f, itemCount = 1, peek = 40f))
+        // The folded full player (art 315dp), two tracks: one large item of 363dp beside the peek — the layout Cris
+        // called right — and the same with the new preferred width.
+        assertEquals(HeroFit(largeCount = 1, largeSize = 363f), materialHeroFit(width = 411f, preferred = 315f, spacing = 8f, itemCount = 2, peek = 40f))
+        val folded = heroCarouselGeometry(availableWidth = 411.dp, availableHeight = 600.dp, queueSize = 2, peek = 40.dp, spacing = 8.dp)
+        assertEquals(363.dp, folded.largeItemWidth)
+    }
+
+    @Test
+    fun `Material lays out ONE large item of the preferred width at every size and queue length`() {
+        for (density in listOf(1f, 2f, 2.625f, 2.8f, 3f, 3.5f)) {
+            for (artArea in 60..900) {
+                for (queueSize in 1..6) {
+                    val geometry = heroCarouselGeometry(availableWidth = 2000.dp, availableHeight = artArea.dp, queueSize = queueSize, peek = 40.dp, spacing = 8.dp)
+                    // In pixels as on the device: the pager hands Material the carousel's width and the gap in whole
+                    // pixels; the preferred width and the small size reach it unrounded.
+                    val fit = materialHeroFit(
+                        width     = (geometry.width.value * density).roundToInt().toFloat(),
+                        preferred = geometry.largeItemWidth.value * density,
+                        spacing   = (8f * density).roundToInt().toFloat(),
+                        itemCount = queueSize,
+                        peek      = 40f * density,
+                    )
+                    val case = "density $density, art $artArea dp, $queueSize tracks"
+                    assertEquals(1, fit.largeCount, case)
+                    // Within the rounding: half a pixel of width and of each of up to two gaps.
+                    assertTrue(abs(fit.largeSize - geometry.largeItemWidth.value * density) <= 2f, case)
+                    assertTrue(geometry.largeItemWidth >= geometry.itemSide, case)
+                }
+            }
+        }
+    }
+
+    /** Which large items Material's hero arrangement search lays out: how many, and how wide. */
+    private data class HeroFit(val largeCount: Int, val largeSize: Float)
+
+    /**
+     * Material 3 1.5.0-beta01's hero arrangement search — `heroKeylineList` → `Arrangement.findLowestCostArrangement`
+     * / `fit` / `calculateLargeSize`, ported from the bytecode for these tests only: the hero list has no medium
+     * items, and the small items are pinned to [peek] (passed as Material's minimum AND maximum, as
+     * AlbumArtCarousel does). Small slots: none for one item, one for two (start-aligned), two from three on
+     * (centred), none if the carousel is too narrow for them; large counts tried from `ceil(width / target)` down,
+     * cost `|target − fitted large| × priority`, the first lowest kept, a cost of 0 at once. Re-read it on a
+     * Material bump (docs/PLAYER.md, "Player UI, fix round 2 (lane G)").
+     */
+    private fun materialHeroFit(width: Float, preferred: Float, spacing: Float, itemCount: Int, peek: Float): HeroFit {
+        val target = minOf(preferred, width)
+        var smallCount = when {
+            itemCount <= 1 -> 0
+            itemCount >= 3 -> 2
+            else           -> 1
+        }
+        if (width < peek * smallCount + peek * 1.25f) smallCount = 0
+        val minLarge = maxOf(1, floor((width - peek * smallCount) / target).toInt())
+        val maxLarge = ceil(width / target).toInt()
+        var best: HeroFit? = null
+        var bestCost = Float.MAX_VALUE
+        for ((index, largeCount) in (maxLarge downTo minLarge).withIndex()) {
+            val large = (width - (largeCount + smallCount - 1) * spacing - smallCount * peek) / largeCount
+            val valid = smallCount == 0 || large > peek
+            val cost = if (valid) abs(target - large) * (index + 1) else Float.MAX_VALUE
+            if (best == null || cost < bestCost) {
+                best = HeroFit(largeCount, large)
+                bestCost = cost
+                if (cost == 0f) break
+            }
+        }
+        return checkNotNull(best)
     }
 
     // ── The wavy seek bar ───────────────────────────────────────────────────

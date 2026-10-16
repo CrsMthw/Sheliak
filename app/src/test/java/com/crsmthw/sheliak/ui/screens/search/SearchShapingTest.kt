@@ -65,46 +65,80 @@ class SearchShapingTest {
         playlists = listOf(playlist(7L)),
     )
 
-    // ── totalCount ──────────────────────────────────────────────────────────
+    // ── result kinds ────────────────────────────────────────────────────────
 
     @Test
-    fun `the total counts every kind`() {
-        assertEquals(7, results.totalCount)
+    fun `the result pages are Tracks, Albums, Artists, Playlists`() {
+        assertEquals(
+            listOf(SearchResultKind.TRACKS, SearchResultKind.ALBUMS, SearchResultKind.ARTISTS, SearchResultKind.PLAYLISTS),
+            (0 until SearchResultKind.entries.size).map(::searchResultKindAt),
+        )
     }
 
     @Test
-    fun `an empty result counts zero`() {
-        assertEquals(0, SearchResults.empty("zz").totalCount)
+    fun `each kind counts its own results`() {
+        assertEquals(3, results.countOf(SearchResultKind.TRACKS))
+        assertEquals(1, results.countOf(SearchResultKind.ALBUMS))
+        assertEquals(2, results.countOf(SearchResultKind.ARTISTS))
+        assertEquals(1, results.countOf(SearchResultKind.PLAYLISTS))
+    }
+
+    @Test
+    fun `an empty result counts zero of every kind`() {
+        SearchResultKind.entries.forEach { kind -> assertEquals(0, SearchResults.empty("zz").countOf(kind), "$kind") }
     }
 
     // ── searchSubtitleOf ────────────────────────────────────────────────────
 
     @Test
-    fun `a blank field shows the library's track count`() {
-        assertEquals(SearchSubtitle.LibraryTracks(1200), searchSubtitleOf(queryBlank = true, results = null, libraryTracks = 1200))
+    fun `a blank field shows no subtitle on any result tab`() {
+        SearchResultKind.entries.forEach { kind ->
+            assertEquals(SearchSubtitle.None, searchSubtitleOf(queryBlank = true, results = null, shownKind = kind), "$kind")
+        }
     }
 
     @Test
     fun `a blank field ignores results still held from the last query`() {
-        assertEquals(SearchSubtitle.LibraryTracks(1200), searchSubtitleOf(queryBlank = true, results = results, libraryTracks = 1200))
-    }
-
-    @Test
-    fun `a query shows its results' total`() {
-        assertEquals(SearchSubtitle.Results(7), searchSubtitleOf(queryBlank = false, results = results, libraryTracks = 1200))
-    }
-
-    @Test
-    fun `a query with nothing found shows zero results`() {
         assertEquals(
-            SearchSubtitle.Results(0),
-            searchSubtitleOf(queryBlank = false, results = SearchResults.empty("zz"), libraryTracks = 1200),
+            SearchSubtitle.None,
+            searchSubtitleOf(queryBlank = true, results = results, shownKind = SearchResultKind.TRACKS),
         )
     }
 
     @Test
-    fun `a query whose first results are not in yet keeps the track count`() {
-        assertEquals(SearchSubtitle.LibraryTracks(1200), searchSubtitleOf(queryBlank = false, results = null, libraryTracks = 1200))
+    fun `a query whose first results are not in yet shows no subtitle`() {
+        assertEquals(
+            SearchSubtitle.None,
+            searchSubtitleOf(queryBlank = false, results = null, shownKind = SearchResultKind.TRACKS),
+        )
+    }
+
+    @Test
+    fun `a query counts the result tab shown`() {
+        assertEquals(
+            SearchSubtitle.Count(SearchResultKind.TRACKS, 3),
+            searchSubtitleOf(queryBlank = false, results = results, shownKind = SearchResultKind.TRACKS),
+        )
+        assertEquals(
+            SearchSubtitle.Count(SearchResultKind.ALBUMS, 1),
+            searchSubtitleOf(queryBlank = false, results = results, shownKind = SearchResultKind.ALBUMS),
+        )
+        assertEquals(
+            SearchSubtitle.Count(SearchResultKind.ARTISTS, 2),
+            searchSubtitleOf(queryBlank = false, results = results, shownKind = SearchResultKind.ARTISTS),
+        )
+        assertEquals(
+            SearchSubtitle.Count(SearchResultKind.PLAYLISTS, 1),
+            searchSubtitleOf(queryBlank = false, results = results, shownKind = SearchResultKind.PLAYLISTS),
+        )
+    }
+
+    @Test
+    fun `a result tab with nothing found counts zero`() {
+        assertEquals(
+            SearchSubtitle.Count(SearchResultKind.ALBUMS, 0),
+            searchSubtitleOf(queryBlank = false, results = SearchResults.empty("zz"), shownKind = SearchResultKind.ALBUMS),
+        )
     }
 
     // ── searchPagesNeedReset ────────────────────────────────────────────────
