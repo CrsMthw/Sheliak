@@ -44,24 +44,16 @@ class MediaIdsTest {
         ).forEach { assertNull(StreamUri.keyOf(it), it) }
     }
 
-    /** Section keys as `AlphabetSections.keyOf` makes them, and some no rule makes but an id must still carry. */
-    private val awkwardSectionKeys = listOf(
-        "S", "#", "Ж", "ß", "script:HIRAGANA", "script:HAN", "a:b", "a b+c%d/é", "@in:3:x", "%41", "*",
-    )
-
-    private val sectionedLists = listOf(BrowseNode.Tracks, BrowseNode.Albums, BrowseNode.Artists, BrowseNode.Playlists)
-
     @Test
     fun `every browse node round-trips through its id`() {
         val album = TrackKey("plex:abc", "100")
-        val sections = sectionedLists.flatMap { list -> awkwardSectionKeys.map { BrowseNode.Section(list, it) } }
         val nodes = listOf(
             BrowseNode.Root, BrowseNode.Tracks, BrowseNode.Albums, BrowseNode.Artists, BrowseNode.Playlists,
             BrowseNode.Recent,
             BrowseNode.Album(album),
             BrowseNode.Artist(TrackKey("smb:s", "/Music/AC|DC")),
             BrowseNode.Playlist(42),
-        ) + sections
+        )
         val inContext = nodes.filter { it != BrowseNode.Root }.flatMap { parent ->
             awkwardKeys.map { BrowseNode.InContext(parent, it) }
         }
@@ -89,35 +81,11 @@ class MediaIdsTest {
     }
 
     @Test
-    fun `a letter folder's id is its list and its url-encoded key`() {
-        assertEquals("@section:@tracks:S", BrowseIds.id(BrowseNode.Section(BrowseNode.Tracks, "S")))
-        assertEquals("@section:@albums:%23", BrowseIds.id(BrowseNode.Section(BrowseNode.Albums, "#")))
-        assertEquals(
-            "@section:@artists:script%3AHIRAGANA",
-            BrowseIds.id(BrowseNode.Section(BrowseNode.Artists, "script:HIRAGANA")),
-        )
-    }
-
-    @Test
-    fun `a track in a letter folder carries the folder and plays its own key`() {
-        val key = TrackKey("plex:abc", "7")
-        val section = BrowseNode.Section(BrowseNode.Tracks, "S")
-        val id = BrowseIds.id(BrowseNode.InContext(section, key))
-        assertEquals(BrowseNode.InContext(section, key), BrowseIds.parse(id))
-        assertEquals(key, BrowseIds.trackOf(id))
-        assertNull(BrowseIds.trackOf(BrowseIds.id(section)))
-    }
-
-    @Test
     fun `malformed node ids parse to null`() {
         listOf(
             "@", "@nope", "@album:", "@album:noseparator", "@playlist:x", "@playlist:",
             "@in:", "@in:x:", "@in:999:@tracksplex:a|1", "@in:7:@tracksplex:a", "@in:5:@rootplex:a|1",
             "@in:0:plex:a|1",
-            // Letter folders: no list, no key, a list that has no letters, a key that is not URL encoding.
-            "@section:", "@section:@tracks", "@section:@tracks:", "@section::S", "@section:tracks:S",
-            "@section:@root:S", "@section:@recent:S", "@section:@album:plex:x|1:S", "@section:@section:@tracks:S:T",
-            "@section:@tracks:%zz", "@section:@tracks:%", "@section:@tracks:%2",
         ).forEach { assertNull(BrowseIds.parse(it), it) }
     }
 }

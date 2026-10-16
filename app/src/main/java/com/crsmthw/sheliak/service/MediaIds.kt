@@ -46,15 +46,8 @@ sealed interface BrowseNode {
     data class Playlist(val id: Long) : BrowseNode
 
     /**
-     * One letter folder of a long top-level [list] (Tracks, Albums, Artists or Playlists — [BrowseIds.parse] accepts
-     * no other): the rows whose alphabet section is [key] (`AlphabetSections.keyOf`, e.g. "S", "#",
-     * "script:HIRAGANA"). See [AutoBrowseGrouping].
-     */
-    data class Section(val list: BrowseNode, val key: String) : BrowseNode
-
-    /**
-     * A track listed inside [parent] (an album, a playlist, Tracks, a letter [Section] of Tracks, Recently played).
-     * Playing it queues the whole parent from this track on, the way tapping a row does in the app.
+     * A track listed inside [parent] (an album, a playlist, Tracks, Recently played). Playing it queues the whole
+     * parent from this track on, the way tapping a row does in the app.
      */
     data class InContext(val parent: BrowseNode, val track: TrackKey) : BrowseNode
 }
@@ -74,16 +67,6 @@ object BrowseIds {
     private const val ARTIST = "@artist:"
     private const val PLAYLIST = "@playlist:"
 
-    /**
-     * `@section:<list id>:<url-encoded section key>` — e.g. `@section:@tracks:S`, `@section:@tracks:%23`. A list id
-     * has no ':' and the encoded key none either, so the first ':' after the prefix splits them.
-     */
-    private const val SECTION = "@section:"
-
-    /** The lists a [BrowseNode.Section] may belong to. */
-    private val SECTIONED_LISTS: Set<BrowseNode> =
-        setOf(BrowseNode.Tracks, BrowseNode.Albums, BrowseNode.Artists, BrowseNode.Playlists)
-
     /** `@in:<length of the parent id>:<parent id><track media id>` — length-prefixed, so any id nests safely. */
     private const val IN = "@in:"
 
@@ -97,7 +80,6 @@ object BrowseIds {
         is BrowseNode.Album     -> ALBUM + node.key.mediaId
         is BrowseNode.Artist    -> ARTIST + node.key.mediaId
         is BrowseNode.Playlist  -> PLAYLIST + node.id
-        is BrowseNode.Section   -> "$SECTION${id(node.list)}:${URLEncoder.encode(node.key, UTF_8)}"
         is BrowseNode.InContext -> id(node.parent).let { parent -> "$IN${parent.length}:$parent${node.track.mediaId}" }
     }
 
@@ -114,7 +96,6 @@ object BrowseIds {
             id.startsWith(ALBUM)     -> TrackKey.parseMediaId(id.substring(ALBUM.length))?.let(BrowseNode::Album)
             id.startsWith(ARTIST)    -> TrackKey.parseMediaId(id.substring(ARTIST.length))?.let(BrowseNode::Artist)
             id.startsWith(PLAYLIST)  -> id.substring(PLAYLIST.length).toLongOrNull()?.let(BrowseNode::Playlist)
-            id.startsWith(SECTION)   -> parseSection(id.substring(SECTION.length))
             id.startsWith(IN)        -> parseInContext(id.substring(IN.length))
             else                     -> null
         }
@@ -125,22 +106,6 @@ object BrowseIds {
         null                    -> if (id.startsWith(PREFIX)) null else TrackKey.parseMediaId(id)
         is BrowseNode.InContext -> node.track
         else                    -> null
-    }
-
-    /**
-     * `<list id>:<url-encoded key>` → the section; null for a list that has no sections, an empty key, or a key that
-     * is not valid URL encoding (a controller may send any id: parsing must never throw).
-     */
-    private fun parseSection(rest: String): BrowseNode? {
-        val colon = rest.indexOf(':')
-        if (colon <= 0) return null
-        val list = parse(rest.substring(0, colon))?.takeIf { it in SECTIONED_LISTS } ?: return null
-        val key = try {
-            URLDecoder.decode(rest.substring(colon + 1), UTF_8)
-        } catch (_: IllegalArgumentException) {
-            return null
-        }
-        return if (key.isEmpty()) null else BrowseNode.Section(list, key)
     }
 
     private fun parseInContext(rest: String): BrowseNode? {

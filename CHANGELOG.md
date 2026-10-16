@@ -116,11 +116,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the card open and backing out of the full player no longer leaves the Library dimmed (a Compose animation
   defect, registered as a provisional workaround).
 - Settings → Manage sources: "Forget Plex account" is now "Sign out from Plex", with no subtitle.
-- Android Auto: Tracks, Albums, Artists and Playlists longer than 100 items are letter folders — the same letters as
-  the in-app fast scroller — with every item inside, replacing the 500-row cap that ended the lists at B or D; a
-  track played from a letter folder queues that letter from it.
+- Android Auto: the 500-row cap that ended the Tracks, Albums and Artists lists at B or D is gone; every list is
+  flat and complete, navigated with Auto's own letter jump (letter folders were built and dropped the same day at
+  Cris's request).
 - The artist page's Albums row is the same multi-browse carousel as Most played, with the title and year on the
   cover; the uncontained row clipped its labels' first letters and its free fling bounced at the end.
 - The player's art carousel lays a one- or two-track queue out as one square cover with a peek (two tracks) or one
   centred square (one track), instead of two portrait crops in the pop-out card.
-- 672 JVM unit tests.
+- 653 JVM unit tests.
